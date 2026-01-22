@@ -327,6 +327,9 @@ in {
     KbdInteractiveAuthentication = false;
   };
 
+  # Enable Tailscale for remote deploy over GitHub Actions.
+  services.tailscale.enable = true;
+
   services.dnsmasq = {
     enable = true;
     resolveLocalQueries = false;
@@ -349,7 +352,7 @@ in {
 
   networking.firewall.enable = true;
   networking.firewall.allowedTCPPorts = [ 22 ];
-  networking.firewall.trustedInterfaces = [ "enp2s0" ];
+  networking.firewall.trustedInterfaces = [ "enp2s0" "tailscale0" ];
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
