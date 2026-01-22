@@ -228,6 +228,9 @@ in {
     isNormalUser = true;
     description = "QiTech HMI";
     extraGroups = [ "networkmanager" "wheel" "realtime" "wireshark" ];
+    openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPK3C7us4fZevULpTNR9UC8t60Qobjs/x9PrqXj1ieWb admin@DESKTOP-JEG0DEL"
+    ];
     packages = with pkgs; [ ];
   };
 
@@ -318,7 +321,11 @@ in {
   # List services that you want to enable:
 
   # Enable the OpenSSH daemon.
-  # services.openssh.enable = true;
+  services.openssh.enable = true;
+  services.openssh.settings = {
+    PasswordAuthentication = false;
+    KbdInteractiveAuthentication = false;
+  };
 
   services.dnsmasq = {
     enable = true;
@@ -341,6 +348,7 @@ in {
   };
 
   networking.firewall.enable = true;
+  networking.firewall.allowedTCPPorts = [ 22 ];
   networking.firewall.trustedInterfaces = [ "enp1s0" ];
 
   # This value determines the NixOS release from which the default
