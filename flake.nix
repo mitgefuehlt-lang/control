@@ -79,7 +79,7 @@
 
         # Define nixosConfigurations outside of eachDefaultSystem
         nixosConfigurations = let
-          system = builtins.currentSystem;
+          system = "x86_64-linux";
           pkgs = import nixpkgs { inherit system; };
           gitInfo = import ./nixos/gitInfo.nix { inherit pkgs; };
         in {
