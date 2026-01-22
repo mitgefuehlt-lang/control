@@ -108,7 +108,7 @@ in {
   networking.hostName = "nixos"; # Define your hostname.
   # networking.wireless.enable = true; # Enables wireless support via wpa_supplicant.
 
-  networking.interfaces.enp1s0.ipv4.addresses = [
+  networking.interfaces.enp2s0.ipv4.addresses = [
     {
       address = "10.10.10.1";
       prefixLength = 24;
@@ -332,7 +332,7 @@ in {
     resolveLocalQueries = false;
 
     settings = {
-      interface = "enp1s0"; # only this interface
+      interface = "enp2s0"; # only this interface
       bind-interfaces = true;
       server = [ "1.1.1.1" "8.8.8.8" ];
 
@@ -349,7 +349,7 @@ in {
 
   networking.firewall.enable = true;
   networking.firewall.allowedTCPPorts = [ 22 ];
-  networking.firewall.trustedInterfaces = [ "enp1s0" ];
+  networking.firewall.trustedInterfaces = [ "enp2s0" ];
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
