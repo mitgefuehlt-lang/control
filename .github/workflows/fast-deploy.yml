@@ -20,17 +20,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Connect Tailscale (OAuth)
-        if: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID != '' && secrets.TAILSCALE_OAUTH_CLIENT_SECRET != '' }}
         uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
           oauth-client-secret: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
-
-      - name: Connect Tailscale (Auth Key)
-        if: ${{ secrets.TAILSCALE_AUTHKEY != '' && (secrets.TAILSCALE_OAUTH_CLIENT_ID == '' || secrets.TAILSCALE_OAUTH_CLIENT_SECRET == '') }}
-        uses: tailscale/github-action@v3
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
 
       - name: Start SSH agent
         uses: webfactory/ssh-agent@v0.9.0
