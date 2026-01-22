@@ -1,12 +1,7 @@
 name: Nix CI
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
+  workflow_dispatch:
 
 env:
   NIX_PATH: nixpkgs=channel:nixos-25.05
