@@ -23,7 +23,7 @@ jobs:
         uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
-          oauth-client-secret: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
 
       - name: Start SSH agent
         uses: webfactory/ssh-agent@v0.9.0
