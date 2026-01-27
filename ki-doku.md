@@ -262,3 +262,11 @@
 - 2026-01-27 ~18:25 [Claude Opus 4.5]: **Loesung** - `nixos-install.sh` Script ausgefuehrt um kompletten Rebuild zu erzwingen. Vorher `git safe.directory` fuer root konfiguriert. SchneidemaschineV0 jetzt in `/run/current-system/sw/share/qitech-control-electron/assets/index-*.js` vorhanden. Electron App muss neu gestartet werden.
 - 2026-01-27 ~18:35 [Claude Opus 4.5]: **Bug gefunden** - Device Role Dropdown reagiert nicht auf Klicks. Ursache: In `electron/src/setup/DeviceEepromDialog.tsx` Zeile 436 fehlte `onValueChange={field.onChange}` beim Device Role Select. Der Machine Select (Zeile 366) hatte es korrekt, Device Role nicht.
 - 2026-01-27 ~18:40 [Claude Opus 4.5]: **Bug behoben** - `onValueChange={field.onChange}` hinzugefuegt. Commit 3d4cab24. Deployed via `nixos-install.sh` auf Mini-PC.
+- 2026-01-27 ~18:50 [Claude Opus 4.5]: **Hardware-Anpassung** - SchneidemaschineV0 auf aktuelle Hardware reduziert (Commit 9376918e):
+  - Vorher: 2x EL1008 (16 DI), 1x EL2008 (8 DO), 5x EL2522 (10 Achsen)
+  - Nachher: 1x EL1008 (8 DI), 1x EL2008 (8 DO), 1x EL2522 (2 Achsen)
+  - Neue Rollen: 1=Digital Input, 2=Digital Output, 3=PTO
+- 2026-01-27 ~19:00 [Claude Opus 4.5]: **ERFOLG** - SchneidemaschineV0 laeuft!
+  - Serial: 21 (2. Prozessschritt, 1. Maschine)
+  - Hardware: EK1100 + EL1008 + EL2008 + EL2522
+  - Rollen: 0=Bus Coupler, 1=DI, 2=DO, 3=PTO
