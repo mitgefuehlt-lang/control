@@ -225,3 +225,23 @@
   - GitHub Secrets: `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DEPLOY_HOST` (=100.120.73.16), `DEPLOY_USER` (=qitech), `DEPLOY_SSH_KEY`
   - Tailscale ACLs: `tag:ci` und `tag:server` in tagOwners; SSH-Regel src=tag:ci, dst=tag:server, users=[qitech,root]
   - Mini-PC: `tailscale up --advertise-tags=tag:server --ssh --accept-routes`
+- 2026-01-27 ~17:00 [Claude Opus 4.5]: Dokumentation gelesen fuer das Anlegen einer neuen Maschine. Relevante Docs:
+  - `docs/developer-docs/adding-a-machine.md` - Hauptanleitung (4 Dateien: mod.rs, new.rs, act.rs, api.rs)
+  - `docs/devices.md` - Device-Implementierung (PDO, CoE, Identity)
+  - `docs/identification.md` - Machine Identification (EEPROM Words: Vendor/Machine/Serial/Role)
+  - `docs/architecture-overview.md` - Architektur (Electron -> Server -> control-core -> ethercat-hal)
+  - MockMachine als einfachstes Beispiel unter `machines/src/mock/`
+- 2026-01-27 ~17:30 [Claude Opus 4.5]: **SchneidemaschineV0 angelegt** nach QiTech-Struktur:
+  - Hardware: EK1100, 2x EL1008, 1x EL2008, 5x EL2522
+  - Machine ID: `SCHNEIDEMASCHINE_V0 = 0x0037`
+  - Dateien erstellt:
+    - `machines/src/schneidemaschine_v0/mod.rs` - Struct mit 16 DI, 8 DO, 10 PTO-Achsen
+    - `machines/src/schneidemaschine_v0/new.rs` - Device-Zusammenbau mit Rollen 1-8
+    - `machines/src/schneidemaschine_v0/act.rs` - Control Loop (30 Hz emit)
+    - `machines/src/schneidemaschine_v0/api.rs` - Mutations (SetOutput, SetAxisSpeed, StopAllAxes) + Events
+  - Registriert in `machines/src/lib.rs` und `machines/src/registry.rs`
+  - Device-Rollen:
+    - Role 1: EL1008 #1 (DI 1-8)
+    - Role 2: EL1008 #2 (DI 9-16)
+    - Role 3: EL2008 (DO 1-8)
+    - Role 4-8: EL2522 #1-5 (Achsen 1-10)
