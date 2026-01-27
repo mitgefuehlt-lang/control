@@ -46,6 +46,7 @@ jobs:
              cd \"$DEPLOY_PATH\"; \
              git pull --ff-only; \
              sudo nixos-rebuild switch --flake .#nixos --impure --show-trace; \
+             sleep 5; \
              systemctl is-active sshd; \
              systemctl is-active qitech-control-server; \
              systemctl is-active dnsmasq"
