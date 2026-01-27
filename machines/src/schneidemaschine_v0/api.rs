@@ -14,7 +14,7 @@ use std::sync::Arc;
 #[derive(Serialize, Debug, Clone)]
 pub struct StateEvent {
     pub output_states: [bool; 8],
-    pub axis_speeds: [i32; 10],
+    pub axis_speeds: [i32; 2],
 }
 
 impl StateEvent {
@@ -26,8 +26,8 @@ impl StateEvent {
 /// Live values event - contains sensor readings and positions
 #[derive(Serialize, Debug, Clone)]
 pub struct LiveValuesEvent {
-    pub input_states: [bool; 16],
-    pub axis_positions: [u32; 10],
+    pub input_states: [bool; 8],
+    pub axis_positions: [u32; 2],
 }
 
 impl LiveValuesEvent {

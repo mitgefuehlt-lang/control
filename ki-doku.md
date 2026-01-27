@@ -257,3 +257,8 @@
     - EL2522: vendor=0x2, product=0x09da3052, rev=0x160000
   - 9 Rollen definiert (Role 0-8): Bus Coupler, 2x DI, 1x DO, 5x PTO
   - Zum `machineProperties` Array hinzugefuegt
+- 2026-01-27 ~18:15 [Claude Opus 4.5]: **Problem** - Nach Deploy war SchneidemaschineV0 immer noch nicht im UI sichtbar.
+- 2026-01-27 ~18:20 [Claude Opus 4.5]: **Ursache** - Nix hatte den Electron-Build gecacht. `nixos-rebuild switch` hat den gecachten Build verwendet statt neu zu bauen.
+- 2026-01-27 ~18:25 [Claude Opus 4.5]: **Loesung** - `nixos-install.sh` Script ausgefuehrt um kompletten Rebuild zu erzwingen. Vorher `git safe.directory` fuer root konfiguriert. SchneidemaschineV0 jetzt in `/run/current-system/sw/share/qitech-control-electron/assets/index-*.js` vorhanden. Electron App muss neu gestartet werden.
+- 2026-01-27 ~18:35 [Claude Opus 4.5]: **Bug gefunden** - Device Role Dropdown reagiert nicht auf Klicks. Ursache: In `electron/src/setup/DeviceEepromDialog.tsx` Zeile 436 fehlte `onValueChange={field.onChange}` beim Device Role Select. Der Machine Select (Zeile 366) hatte es korrekt, Device Role nicht.
+- 2026-01-27 ~18:40 [Claude Opus 4.5]: **Bug behoben** - `onValueChange={field.onChange}` hinzugefuegt. Commit 3d4cab24. Deployed via `nixos-install.sh` auf Mini-PC.

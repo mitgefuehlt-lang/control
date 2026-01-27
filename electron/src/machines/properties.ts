@@ -580,7 +580,7 @@ export const schneidemaschineV0: MachineProperties = {
     },
     {
       role: 1,
-      role_label: "Digital Input 1 (EL1008)",
+      role_label: "Digital Input (EL1008)",
       allowed_devices: [
         {
           vendor_id: 0x2,
@@ -591,17 +591,6 @@ export const schneidemaschineV0: MachineProperties = {
     },
     {
       role: 2,
-      role_label: "Digital Input 2 (EL1008)",
-      allowed_devices: [
-        {
-          vendor_id: 0x2,
-          product_id: 0x03f03052,
-          revision: 0x120000,
-        },
-      ],
-    },
-    {
-      role: 3,
       role_label: "Digital Output (EL2008)",
       allowed_devices: [
         {
@@ -617,52 +606,8 @@ export const schneidemaschineV0: MachineProperties = {
       ],
     },
     {
-      role: 4,
-      role_label: "PTO 1 (EL2522)",
-      allowed_devices: [
-        {
-          vendor_id: 0x2,
-          product_id: 0x09da3052,
-          revision: 0x160000,
-        },
-      ],
-    },
-    {
-      role: 5,
-      role_label: "PTO 2 (EL2522)",
-      allowed_devices: [
-        {
-          vendor_id: 0x2,
-          product_id: 0x09da3052,
-          revision: 0x160000,
-        },
-      ],
-    },
-    {
-      role: 6,
-      role_label: "PTO 3 (EL2522)",
-      allowed_devices: [
-        {
-          vendor_id: 0x2,
-          product_id: 0x09da3052,
-          revision: 0x160000,
-        },
-      ],
-    },
-    {
-      role: 7,
-      role_label: "PTO 4 (EL2522)",
-      allowed_devices: [
-        {
-          vendor_id: 0x2,
-          product_id: 0x09da3052,
-          revision: 0x160000,
-        },
-      ],
-    },
-    {
-      role: 8,
-      role_label: "PTO 5 (EL2522)",
+      role: 3,
+      role_label: "PTO (EL2522)",
       allowed_devices: [
         {
           vendor_id: 0x2,
