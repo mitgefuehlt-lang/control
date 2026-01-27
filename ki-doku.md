@@ -247,3 +247,13 @@
     - Role 4-8: EL2522 #1-5 (Achsen 1-10)
 - 2026-01-27 ~17:32 [Claude Opus 4.5]: **Kompilierung erfolgreich** - SchneidemaschineV0 Code kompiliert und deployed auf Mini-PC. Server laeuft (`qitech-control-server: active`). dnsmasq war beim Check noch nicht aktiv (Timing-Problem).
 - 2026-01-27 ~17:36 [Claude Opus 4.5]: **Workflow-Fix** - Race Condition behoben: `sleep 5` vor systemctl-Checks eingefuegt, damit Services Zeit haben zu starten. Deploy jetzt erfolgreich (Run ID: 21405616278).
+- 2026-01-27 ~18:00 [Claude Opus 4.5]: **Problem** - SchneidemaschineV0 nicht im UI Assign-Dropdown sichtbar. Ursache: Maschine war nur im Backend registriert, nicht im Frontend (`electron/src/machines/properties.ts`).
+- 2026-01-27 ~18:05 [Claude Opus 4.5]: **Loesung** - Frontend-Registration hinzugefuegt:
+  - `schneidemaschineV0` in `electron/src/machines/properties.ts` erstellt
+  - Device-IDs aus Backend uebernommen:
+    - EK1100: vendor=0x2, product=0x44c2c52, rev=0x120000
+    - EL1008: vendor=0x2, product=0x03f03052, rev=0x120000
+    - EL2008: vendor=0x2, product=0x07d83052, rev=0x110000/0x120000
+    - EL2522: vendor=0x2, product=0x09da3052, rev=0x160000
+  - 9 Rollen definiert (Role 0-8): Bus Coupler, 2x DI, 1x DO, 5x PTO
+  - Zum `machineProperties` Array hinzugefuegt

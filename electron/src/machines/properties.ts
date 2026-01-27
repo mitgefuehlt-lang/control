@@ -557,6 +557,123 @@ export const wagoAiTestMachine: MachineProperties = {
   ],
 };
 
+export const schneidemaschineV0: MachineProperties = {
+  name: "Schneidemaschine",
+  version: "V0",
+  slug: "schneidemaschine_v0",
+  icon: "lu:Scissors",
+  machine_identification: {
+    vendor: VENDOR_QITECH,
+    machine: 0x0037,
+  },
+  device_roles: [
+    {
+      role: 0,
+      role_label: "Bus Coupler (EK1100)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x44c2c52,
+          revision: 0x120000,
+        },
+      ],
+    },
+    {
+      role: 1,
+      role_label: "Digital Input 1 (EL1008)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x03f03052,
+          revision: 0x120000,
+        },
+      ],
+    },
+    {
+      role: 2,
+      role_label: "Digital Input 2 (EL1008)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x03f03052,
+          revision: 0x120000,
+        },
+      ],
+    },
+    {
+      role: 3,
+      role_label: "Digital Output (EL2008)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x07d83052,
+          revision: 0x110000,
+        },
+        {
+          vendor_id: 0x2,
+          product_id: 0x07d83052,
+          revision: 0x120000,
+        },
+      ],
+    },
+    {
+      role: 4,
+      role_label: "PTO 1 (EL2522)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x09da3052,
+          revision: 0x160000,
+        },
+      ],
+    },
+    {
+      role: 5,
+      role_label: "PTO 2 (EL2522)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x09da3052,
+          revision: 0x160000,
+        },
+      ],
+    },
+    {
+      role: 6,
+      role_label: "PTO 3 (EL2522)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x09da3052,
+          revision: 0x160000,
+        },
+      ],
+    },
+    {
+      role: 7,
+      role_label: "PTO 4 (EL2522)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x09da3052,
+          revision: 0x160000,
+        },
+      ],
+    },
+    {
+      role: 8,
+      role_label: "PTO 5 (EL2522)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x09da3052,
+          revision: 0x160000,
+        },
+      ],
+    },
+  ],
+};
+
 export const machineProperties: MachineProperties[] = [
   winder2,
   extruder3,
@@ -570,6 +687,7 @@ export const machineProperties: MachineProperties[] = [
   analogInputTestMachine,
   wagoAiTestMachine,
   ip20TestMachine,
+  schneidemaschineV0,
 ];
 
 export const getMachineProperties = (
