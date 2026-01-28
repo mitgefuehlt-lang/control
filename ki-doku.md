@@ -407,7 +407,7 @@ Erfolgreich wenn: "Group in Safe-OP state" und "Group in OP state" erscheinen.
   - Nach Server-Neustart: "Group in OP state" - EtherCAT funktioniert
   - Hardware: EK1100 (Role 0) + EL1008 (Role 1, DI) + EL2008 (Role 2, DO) + EL2522 (Role 3, PTO)
   - Test durch Benutzer: **ERFOLG** - DI1 -> DO1 funktioniert wie erwartet
-- 2026-01-28 ~19:00 [Claude Opus 4.5]: **EL2522 PTO Stepper-Motor-Ansteuerung implementiert** (bisher schwerste Challenge)
+- 2026-01-28 ~19:00 [Claude Opus 4.5]: **EL2522 PTO Stepper-Motor-Ansteuerung implementiert** (bisher schwerste Challenge, jetzt geloest!)
   - Hardware-Setup:
     - CL57T Stepper-Treiber von StepperOnline
     - 200 Pulse/Umdrehung (Treiber-Einstellung)
@@ -517,3 +517,86 @@ EL2522ChannelConfiguration {
 3. Motor ruckelt:
    - `ramp_function_active` pruefen
    - `ramp_time_constant` erhoehen
+
+- 2026-01-28 ~17:45 [Claude Opus 4.5]: **Motor-Steuerung via Taster implementiert**
+  - Anforderung: DI1 (Taster) soll Motor starten/stoppen statt DO1 zu schalten
+  - Aenderung in `act.rs`: DI1 steuert jetzt Achse 2 (Channel 2)
+  - Logik: Taster gedrueckt = 1000 Hz (50 mm/s), losgelassen = 0 Hz
+  - Commit: fccbdcd4 "SchneidemaschineV0: DI1 controls motor instead of DO1"
+  - **ERFOLG** - Hardware-Test bestanden, Motor laeuft bei Tastendruck
+
+### Motor-Steuerung via Taster (Stand 2026-01-28)
+
+**Funktionsweise:**
+- **Taster druecken (DI1 = HIGH)** → Motor laeuft mit 50 mm/s (1000 Hz)
+- **Taster loslassen (DI1 = LOW)** → Motor stoppt (0 Hz)
+
+**Code in `act.rs`:**
+```rust
+// DI1 controls motor on Channel 2: press = run at 50 mm/s, release = stop
+let input_pressed = self.digital_inputs[0].get_value().unwrap_or(false);
+let target_speed = if input_pressed { 1000 } else { 0 }; // 1000 Hz = 50 mm/s
+if self.axis_speeds[1] != target_speed {
+    self.set_axis_speed(1, target_speed);
+    tracing::info!(
+        "[SchneidemaschineV0] DI1={} -> Motor speed set to {} Hz ({} mm/s)",
+        input_pressed,
+        target_speed,
+        target_speed as f32 / 20.0
+    );
+}
+```
+
+**Live-Monitoring:**
+```bash
+ssh qitech@192.168.178.106 "sudo journalctl -u qitech-control-server -f"
+```
+
+**Erwartete Log-Ausgaben:**
+```
+# Taster gedrueckt:
+[SchneidemaschineV0] DI1=true -> Motor speed set to 1000 Hz (50 mm/s)
+
+# Taster losgelassen:
+[SchneidemaschineV0] DI1=false -> Motor speed set to 0 Hz (0 mm/s)
+
+# Waehrend Motor laeuft (alle 1s):
+[PTO2] freq=1000Hz pos=12345p (617.2mm) ramp=false err=false
+```
+
+**Geschwindigkeit aendern:**
+In `act.rs` Zeile mit `target_speed` anpassen:
+- 500 Hz = 25 mm/s
+- 1000 Hz = 50 mm/s (aktuell)
+- 2000 Hz = 100 mm/s
+- 4600 Hz = 230 mm/s (Maximum)
+
+Formel: `Hz = mm/s * 20` (weil 20 Pulse/mm)
+
+### Zusammenfassung Session 2026-01-28
+
+**Erledigte Aufgaben:**
+1. ✅ Tailscale ACLs nach Reset neu konfiguriert
+2. ✅ GitHub Actions CI/CD Deploy wiederhergestellt
+3. ✅ EL2522 PTO Stepper-Motor-Ansteuerung implementiert (CoE-Konfiguration)
+4. ✅ Debug-API fuer PTO-Status hinzugefuegt
+5. ✅ Motor-Steuerung via Taster (DI1) implementiert
+6. ✅ Hardware-Test erfolgreich - Motor laeuft bei Tastendruck
+
+**Technische Meilensteine:**
+- Erste erfolgreiche Ansteuerung eines Stepper-Motors via EL2522 in diesem Projekt
+- Vollstaendige CoE-Konfiguration fuer Pulse+Direction Mode
+- Rampen-Funktion fuer sanftes Anfahren/Bremsen aktiviert
+- Umfassende Debug-Moeglichkeiten implementiert
+
+**Gelernte Lektionen:**
+- EL2522 benoetigt CoE-Konfiguration VOR dem Wechsel in OP-State
+- `direct_input_mode: true` ermoeglicht direkte Hz-Werte statt Prozentwerte
+- Tailscale SSH erfordert explizites `tailscale set --ssh` nach Neuverbindung
+- `dst: ["*"]` funktioniert NICHT in Tailscale SSH-Regeln
+
+**Naechste moegliche Schritte:**
+- Geschwindigkeit ueber UI einstellbar machen
+- Positionierung implementieren (Zielposition anfahren)
+- Endschalter/Referenzfahrt hinzufuegen
+- Zweite Achse (Channel 1) aktivieren
