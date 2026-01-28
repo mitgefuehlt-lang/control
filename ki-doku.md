@@ -281,3 +281,129 @@
   - Tailscale-Verbindung: Runner sieht Mini-PC im Status
   - Ping: 0% Paketverlust (Latenz initial hoch wegen NAT-Traversal)
   - SSH + git pull + nixos-rebuild: Erfolgreich
+
+### Tailscale CI/CD Komplettanleitung (Stand 2026-01-28)
+
+**Problem**: Tailscale ACLs waren komplett geloescht, GitHub Actions Deploy funktionierte nicht mehr.
+
+**Loesung in 4 Schritten:**
+
+#### Schritt 1: ACLs auf login.tailscale.com eintragen
+```json
+{
+  "tagOwners": {
+    "tag:ci": ["autogroup:admin"],
+    "tag:server": ["autogroup:admin"]
+  },
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["*"],
+      "dst": ["*:*"]
+    }
+  ],
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["tag:ci"],
+      "dst": ["tag:server"],
+      "users": ["qitech", "root"]
+    },
+    {
+      "action": "accept",
+      "src": ["autogroup:admin"],
+      "dst": ["tag:server"],
+      "users": ["autogroup:nonroot", "root"]
+    }
+  ]
+}
+```
+**Wichtig**: `dst: ["*"]` funktioniert NICHT bei SSH-Regeln, muss explizit `tag:server` sein.
+
+#### Schritt 2: Mini-PC mit Tailscale verbinden
+```bash
+sudo tailscale up --advertise-tags=tag:server --ssh --accept-routes
+```
+
+#### Schritt 3: Tailscale SSH explizit aktivieren
+```bash
+sudo tailscale set --ssh
+```
+**Wichtig**: Ohne diesen Befehl zeigt `tailscale status` eine Warnung:
+> "Tailscale SSH enabled, but access controls don't allow anyone to access this device"
+Nach `tailscale set --ssh` verschwindet die Warnung und SSH funktioniert.
+
+#### Schritt 4: GitHub Secrets pruefen
+- `TS_OAUTH_CLIENT_ID` - OAuth Client ID von login.tailscale.com
+- `TS_OAUTH_SECRET` - OAuth Client Secret
+- `DEPLOY_HOST` - Tailscale IP des Mini-PCs (z.B. `100.120.73.16`)
+- `DEPLOY_USER` - `qitech`
+- `DEPLOY_SSH_KEY` - SSH Private Key
+
+**OAuth Client erstellen**: https://login.tailscale.com/admin/settings/oauth
+- Scope: `devices:write`
+- Tag: `tag:ci`
+
+#### Debugging bei Problemen
+Debug-Step im Workflow (temporaer hinzufuegen):
+```yaml
+- name: Debug Tailscale
+  run: |
+    tailscale status
+    tailscale ip -4
+    ping -c 3 ${{ secrets.DEPLOY_HOST }} || echo "Ping failed"
+```
+
+### SchneidemaschineV0 DI1 -> DO1 Logik (Stand 2026-01-28)
+
+**Anforderung**: Eingang 1 (DI1) aktiv durch Taster -> Ausgang 1 (DO1) aktiv
+
+**Implementierung bereits vorhanden** in `machines/src/schneidemaschine_v0/act.rs`:
+```rust
+// Simple IO logic: DI1 -> DO1 (press = output on)
+let input_pressed = self.digital_inputs[0].get_value().unwrap_or(false);
+if input_pressed != self.output_states[0] {
+    self.set_output(0, input_pressed);
+}
+```
+
+**Wie QiTech Beckhoff-Klemmen ansteuert (Architektur):**
+
+1. **Control Loop** (`server/src/loop.rs`):
+   - `copy_ethercat_inputs()` - Liest Inputs von EtherCAT-Devices in PDO-Objekte
+   - `execute_machines()` - Ruft `machine.act(now)` fuer jede Maschine auf
+   - `copy_ethercat_outputs()` - Schreibt Outputs von PDO-Objekten zu EtherCAT-Devices
+
+2. **Device Layer** (`ethercat-hal/src/devices/`):
+   - Jedes Device (EL1008, EL2008, etc.) hat TxPDO (Inputs) und/oder RxPDO (Outputs)
+   - `is_used` Flag: Devices muessen mit `set_used(true)` markiert werden, sonst werden I/O-Daten nicht kopiert
+   - `get_ethercat_device()` in `machines/src/lib.rs` ruft automatisch `set_used(true)` auf
+
+3. **IO Layer** (`ethercat-hal/src/io/`):
+   - `DigitalInput::get_value()` - Liest aus Device TxPDO
+   - `DigitalOutput::set(bool)` - Schreibt in Device RxPDO
+
+4. **Machine Layer** (`machines/src/schneidemaschine_v0/`):
+   - `new.rs` - Erstellt Machine, holt Devices mit `get_ethercat_device`
+   - `act.rs` - Control-Logik (wird jeden Zyklus aufgerufen, ~300us)
+   - `mod.rs` - Struct Definition, Helper-Funktionen
+   - `api.rs` - Events fuer UI, Mutations fuer API
+
+**Wichtige Dateien fuer neue Maschinen:**
+- `docs/developer-docs/adding-a-machine.md` - Hauptanleitung
+- `docs/devices.md` - Device-Implementierung
+- `machines/src/mock/` - Einfachstes Beispiel
+
+**Server-Neustart bei EtherCAT-Problemen:**
+```bash
+sudo systemctl restart qitech-control-server
+sudo journalctl -u qitech-control-server --no-pager -n 30
+```
+Erfolgreich wenn: "Group in Safe-OP state" und "Group in OP state" erscheinen.
+
+- 2026-01-28 ~18:15 [Claude Opus 4.5]: **SchneidemaschineV0 DI1->DO1 verifiziert**
+  - Code-Review: Logik war bereits korrekt implementiert in `act.rs`
+  - Problem war EtherCAT-Timeout beim Server-Start (intermittierend)
+  - Nach Server-Neustart: "Group in OP state" - EtherCAT funktioniert
+  - Hardware: EK1100 (Role 0) + EL1008 (Role 1, DI) + EL2008 (Role 2, DO) + EL2522 (Role 3, PTO)
+  - Test durch Benutzer: **ERFOLG** - DI1 -> DO1 funktioniert wie erwartet
