@@ -407,3 +407,113 @@ Erfolgreich wenn: "Group in Safe-OP state" und "Group in OP state" erscheinen.
   - Nach Server-Neustart: "Group in OP state" - EtherCAT funktioniert
   - Hardware: EK1100 (Role 0) + EL1008 (Role 1, DI) + EL2008 (Role 2, DO) + EL2522 (Role 3, PTO)
   - Test durch Benutzer: **ERFOLG** - DI1 -> DO1 funktioniert wie erwartet
+- 2026-01-28 ~19:00 [Claude Opus 4.5]: **EL2522 PTO Stepper-Motor-Ansteuerung implementiert** (bisher schwerste Challenge)
+  - Hardware-Setup:
+    - CL57T Stepper-Treiber von StepperOnline
+    - 200 Pulse/Umdrehung (Treiber-Einstellung)
+    - Kugelumlaufspindel: Durchmesser 16mm, Steigung 10mm
+    - Berechnung: 20 Pulse/mm (200/10)
+    - Anschluss an EL2522 Channel 2: PUL+/- an A2+/-, DIR+/- an B2+/-
+  - Implementierte Aenderungen:
+    1. **new.rs**: CoE-Konfiguration fuer EL2522 Channel 2
+       - `PulseDirectionSpecification` Mode
+       - `ramp_function_active: true` fuer sanfte Beschleunigung
+       - `direct_input_mode: true` (Hz-Wert direkt als Frequenz)
+       - `base_frequency_1: 5000` Hz (fuer Ramp-Berechnung)
+       - `ramp_time_constant_rising/falling: 2500` ms
+       - `frequency_factor: 100` (1:1 Verhaeltnis)
+       - `watchdog_timer_deactive: true` (fuer Tests)
+    2. **mod.rs**: Mechanik-Modul + Debug-Funktionen
+       - `mechanics::PULSES_PER_MM = 20.0`
+       - `mm_per_s_to_hz()`, `hz_to_mm_per_s()`, `pulses_to_mm()`
+       - `set_axis_speed_mm_s()` - Geschwindigkeit in mm/s setzen
+       - `get_debug_pto()` - Vollstaendige EtherCAT-Status-Abfrage
+       - `emit_debug_pto()`, `log_debug_all()` - Debug-Ausgabe
+    3. **api.rs**: Neue Events und Mutations
+       - `DebugPtoEvent` mit allen EtherCAT-Statusinformationen
+       - `SetAxisSpeedMmS { index, speed_mm_s }` Mutation
+       - `DebugPto { index }` und `DebugLogAll` Mutations
+    4. **act.rs**: Periodische Debug-Ausgabe wenn Achse laeuft
+       - Log alle 1s: Frequenz, Position, Ramp-Status, Fehler
+    5. **pulse_train_output.rs**: Neue oeffentliche Methoden
+       - `get_input()`, `get_output()`, `set_output()`
+  - Server-Log nach Deploy:
+    `[SchneidemaschineV0] EL2522 configured: Channel 2 = PulseDirection mode, base_freq=5000Hz, ramp=2500ms`
+  - Geschwindigkeits-Umrechnung:
+    - 50 mm/s = 1000 Hz
+    - 230 mm/s (Max) = 4600 Hz
+  - **Status**: Deploy erfolgreich, EtherCAT in OP-State, Hardware-Test steht aus
+
+### EL2522 PTO Stepper-Motor-Ansteuerung (Stand 2026-01-28)
+
+**Hardware-Konfiguration:**
+- Motor-Treiber: CL57T (StepperOnline)
+- Pulse/Umdrehung: 200 (Treiber-DIP-Schalter)
+- Kugelumlaufspindel: Lead 10mm
+- Pulses/mm: 20 (200/10)
+- Max. Geschwindigkeit: 230 mm/s = 4600 Hz
+- Max. Beschleunigung: 500 mm/s² (100 mm/s² verwendet)
+
+**Verkabelung EL2522 Channel 2:**
+```
+EL2522          CL57T
+A2+ (Pin 3) --> PUL+
+A2- (Pin 4) --> PUL-
+B2+ (Pin 5) --> DIR+
+B2- (Pin 6) --> DIR-
+```
+
+**CoE-Konfiguration (new.rs):**
+```rust
+EL2522ChannelConfiguration {
+    operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
+    ramp_function_active: true,
+    direct_input_mode: true,
+    base_frequency_1: 5000,  // Max Hz fuer Ramp
+    ramp_time_constant_rising: 2500,   // ms von 0 auf base_freq
+    ramp_time_constant_falling: 2500,
+    frequency_factor: 100,   // 1:1 (100 = 100%)
+    watchdog_timer_deactive: true,
+    ..Default::default()
+}
+```
+
+**API-Verwendung:**
+```json
+// Achse 2 auf 50 mm/s setzen (= 1000 Hz)
+{ "action": "SetAxisSpeedMmS", "value": { "index": 1, "speed_mm_s": 50.0 } }
+
+// Achse stoppen
+{ "action": "SetAxisSpeed", "value": { "index": 1, "speed": 0 } }
+
+// Alle Achsen stoppen
+{ "action": "StopAllAxes" }
+
+// Debug-Info fuer Channel 2 abrufen
+{ "action": "DebugPto", "value": { "index": 1 } }
+
+// Alle Debug-Infos in Server-Konsole loggen
+{ "action": "DebugLogAll" }
+```
+
+**Debug-Event Felder (DebugPtoEvent):**
+- `channel` - Kanal-Nummer (0 oder 1)
+- `frequency_setpoint_hz` - Gesendete Frequenz
+- `frequency_setpoint_mm_s` - Umgerechnet in mm/s
+- `actual_position_pulses` - Aktuelle Position (Zaehler)
+- `actual_position_mm` - Position in mm
+- `ramp_active` - Rampe gerade aktiv
+- `error` - Fehler-Flag vom Device
+- `sync_error` - Sync-Fehler
+- `counter_overflow/underflow` - Zaehler-Ueberlauf
+
+**Troubleshooting:**
+1. Motor dreht nicht:
+   - Server-Log pruefen: Sollte "EL2522 configured" zeigen
+   - `DebugLogAll` aufrufen und `error`-Flag pruefen
+   - Verkabelung pruefen (PUL/DIR richtig angeschlossen?)
+2. Motor dreht falsch herum:
+   - DIR+/DIR- tauschen oder negative Frequenz senden
+3. Motor ruckelt:
+   - `ramp_function_active` pruefen
+   - `ramp_time_constant` erhoehen

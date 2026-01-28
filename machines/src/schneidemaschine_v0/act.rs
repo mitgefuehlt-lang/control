@@ -12,10 +12,17 @@ impl MachineAct for SchneidemaschineV0 {
             self.act_machine_message(msg);
         }
 
-        // Simple IO logic: DI1 -> DO1 (press = output on)
+        // DI1 controls motor on Channel 2: press = run at 50 mm/s, release = stop
         let input_pressed = self.digital_inputs[0].get_value().unwrap_or(false);
-        if input_pressed != self.output_states[0] {
-            self.set_output(0, input_pressed);
+        let target_speed = if input_pressed { 1000 } else { 0 }; // 1000 Hz = 50 mm/s
+        if self.axis_speeds[1] != target_speed {
+            self.set_axis_speed(1, target_speed);
+            tracing::info!(
+                "[SchneidemaschineV0] DI1={} -> Motor speed set to {} Hz ({} mm/s)",
+                input_pressed,
+                target_speed,
+                target_speed as f32 / 20.0
+            );
         }
 
         // Emit state and live values at ~30 Hz

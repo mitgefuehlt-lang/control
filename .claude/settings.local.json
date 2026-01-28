@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(gh workflow run:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(ssh qitech@192.168.178.106 \"sudo tailscale up --advertise-tags=tag:server --ssh\")",
+      "Bash(ssh:*)",
+      "Bash(cargo check:*)",
+      "Bash(gh run:*)",
+      "Bash(tailscale status:*)",
+      "Bash(ping:*)",
+      "Bash(git restore:*)"
+    ]
+  }
+}
