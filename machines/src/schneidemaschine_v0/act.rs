@@ -9,6 +9,12 @@ impl MachineAct for SchneidemaschineV0 {
             self.act_machine_message(msg);
         }
 
+        // Simple IO logic: DI1 -> DO1 (press = output on)
+        let input_pressed = self.digital_inputs[0].get_value().unwrap_or(false);
+        if input_pressed != self.output_states[0] {
+            self.set_output(0, input_pressed);
+        }
+
         // Emit state and live values at ~30 Hz
         if now.duration_since(self.last_state_emit) > Duration::from_secs_f64(1.0 / 30.0) {
             self.emit_live_values();
