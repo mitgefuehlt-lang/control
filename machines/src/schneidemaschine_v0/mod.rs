@@ -240,16 +240,16 @@ impl SchneidemaschineV0 {
 
         // PTO Channels
         for i in 0..2 {
-            let debug = self.get_debug_pto(i);
+            let pto_info = self.get_debug_pto(i);
             tracing::info!(
                 "PTO{}: freq={}Hz ({:.1}mm/s) pos={}p ({:.2}mm) ramp={} err={}",
                 i + 1,
-                debug.frequency_setpoint_hz,
-                debug.frequency_setpoint_mm_s,
-                debug.actual_position_pulses,
-                debug.actual_position_mm,
-                debug.ramp_active,
-                debug.error
+                pto_info.frequency_setpoint_hz,
+                pto_info.frequency_setpoint_mm_s,
+                pto_info.actual_position_pulses,
+                pto_info.actual_position_mm,
+                pto_info.ramp_active,
+                pto_info.error
             );
         }
         tracing::info!("===============================================");

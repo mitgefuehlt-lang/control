@@ -39,14 +39,14 @@ impl MachineAct for SchneidemaschineV0 {
                 unsafe {
                     LAST_DEBUG = Some(now);
                 }
-                let debug = self.get_debug_pto(1);
+                let pto_info = self.get_debug_pto(1);
                 tracing::info!(
                     "[PTO2] freq={}Hz pos={}p ({:.1}mm) ramp={} err={}",
-                    debug.frequency_setpoint_hz,
-                    debug.actual_position_pulses,
-                    debug.actual_position_mm,
-                    debug.ramp_active,
-                    debug.error
+                    pto_info.frequency_setpoint_hz,
+                    pto_info.actual_position_pulses,
+                    pto_info.actual_position_mm,
+                    pto_info.ramp_active,
+                    pto_info.error
                 );
             }
         }
