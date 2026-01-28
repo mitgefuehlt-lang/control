@@ -10,9 +10,13 @@ use crate::{
 };
 
 use anyhow::Error;
+use ethercat_hal::coe::ConfigurableDevice;
 use ethercat_hal::devices::el1008::{EL1008, EL1008Port, EL1008_IDENTITY_A};
 use ethercat_hal::devices::el2008::{EL2008, EL2008Port, EL2008_IDENTITY_A, EL2008_IDENTITY_B};
-use ethercat_hal::devices::el2522::{EL2522, EL2522Port, EL2522_IDENTITY_A};
+use ethercat_hal::devices::el2522::{
+    EL2522, EL2522ChannelConfiguration, EL2522Configuration, EL2522OperatingMode, EL2522Port,
+    EL2522_IDENTITY_A,
+};
 use ethercat_hal::io::digital_input::DigitalInput;
 use ethercat_hal::io::digital_output::DigitalOutput;
 use ethercat_hal::io::pulse_train_output::PulseTrainOutput;
@@ -83,14 +87,54 @@ impl MachineNewTrait for SchneidemaschineV0 {
             ];
 
             // ========== Pulse Train Outputs (1x EL2522) ==========
-            let el2522 = get_ethercat_device::<EL2522>(
+            let (el2522, subdevice) = get_ethercat_device::<EL2522>(
                 hardware,
                 params,
                 roles::PTO,
                 [EL2522_IDENTITY_A].to_vec(),
             )
-            .await?
-            .0;
+            .await?;
+
+            // Configure EL2522 for Pulse+Direction mode on Channel 2
+            // Mechanics: 200 pulses/rev, 10mm lead -> 20 pulses/mm
+            // Speed 50 mm/s -> 1000 Hz, Accel 100 mm/s² -> ramp time ~500ms
+            let el2522_config = EL2522Configuration {
+                // Channel 1: Default (not used currently)
+                channel1_configuration: EL2522ChannelConfiguration::default(),
+                // Channel 2: CL57T Stepper Driver - Pulse+Direction
+                channel2_configuration: EL2522ChannelConfiguration {
+                    // Pulse + Direction mode for stepper driver
+                    operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
+                    // Enable ramp function for smooth acceleration
+                    ramp_function_active: true,
+                    // Direct frequency input (Hz value directly controls frequency)
+                    direct_input_mode: true,
+                    // Base frequency 1: Max frequency in Hz (for ramp calculation)
+                    // 230 mm/s * 20 pulses/mm = 4600 Hz, use 5000 Hz as base
+                    base_frequency_1: 5000,
+                    // Ramp time constant: time in ms to go from 0 to base_frequency
+                    // Accel 100 mm/s² = 2000 pulses/s², from 0 to 5000 Hz = 2.5s = 2500ms
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2500,
+                    // Frequency factor for direct input mode (100 = 1:1)
+                    frequency_factor: 100,
+                    // Disable watchdog for testing
+                    watchdog_timer_deactive: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+
+            // Write configuration to EL2522 via CoE (SDO)
+            el2522
+                .write()
+                .await
+                .write_config(&subdevice, &el2522_config)
+                .await?;
+
+            tracing::info!(
+                "[SchneidemaschineV0] EL2522 configured: Channel 2 = PulseDirection mode, base_freq=5000Hz, ramp=2500ms"
+            );
 
             // Create PulseTrainOutput array for 2 axes
             let axes = [

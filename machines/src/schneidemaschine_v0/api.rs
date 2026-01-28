@@ -36,10 +36,43 @@ impl LiveValuesEvent {
     }
 }
 
+/// Debug event for PTO channel - comprehensive EtherCAT status
+#[derive(Serialize, Debug, Clone, Default)]
+pub struct DebugPtoEvent {
+    pub channel: u8,
+    // Output (what we send to the device)
+    pub frequency_setpoint_hz: i32,
+    pub frequency_setpoint_mm_s: f32,
+    pub target_position_pulses: u32,
+    pub target_position_mm: f32,
+    pub disable_ramp: bool,
+    pub set_counter_request: bool,
+    pub set_counter_value: u32,
+    // Input (feedback from device)
+    pub actual_position_pulses: u32,
+    pub actual_position_mm: f32,
+    pub ramp_active: bool,
+    pub error: bool,
+    pub sync_error: bool,
+    pub counter_overflow: bool,
+    pub counter_underflow: bool,
+    pub set_counter_done: bool,
+    pub input_t: bool,
+    pub input_z: bool,
+    pub select_end_counter: bool,
+}
+
+impl DebugPtoEvent {
+    pub fn build(&self) -> Event<Self> {
+        Event::new("DebugPtoEvent", self.clone())
+    }
+}
+
 /// Events emitted by the machine
 pub enum SchneidemaschineV0Events {
     State(Event<StateEvent>),
     LiveValues(Event<LiveValuesEvent>),
+    DebugPto(Event<DebugPtoEvent>),
 }
 
 /// Mutations (commands from UI to machine)
@@ -50,10 +83,16 @@ pub enum Mutation {
     SetOutput { index: usize, on: bool },
     /// Set all digital outputs
     SetAllOutputs { on: bool },
-    /// Set speed for a single axis
+    /// Set speed for a single axis (in Hz)
     SetAxisSpeed { index: usize, speed: i32 },
+    /// Set speed for a single axis (in mm/s)
+    SetAxisSpeedMmS { index: usize, speed_mm_s: f32 },
     /// Stop all axes
     StopAllAxes,
+    /// Request debug info for a PTO channel (emits DebugPtoEvent)
+    DebugPto { index: usize },
+    /// Log all debug info to server console
+    DebugLogAll,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +115,7 @@ impl CacheableEvents<SchneidemaschineV0Events> for SchneidemaschineV0Events {
         match self {
             Self::State(event) => event.clone().into(),
             Self::LiveValues(event) => event.clone().into(),
+            Self::DebugPto(event) => event.clone().into(),
         }
     }
 
@@ -95,7 +135,12 @@ impl MachineApi for SchneidemaschineV0 {
             Mutation::SetOutput { index, on } => self.set_output(index, on),
             Mutation::SetAllOutputs { on } => self.set_all_outputs(on),
             Mutation::SetAxisSpeed { index, speed } => self.set_axis_speed(index, speed),
+            Mutation::SetAxisSpeedMmS { index, speed_mm_s } => {
+                self.set_axis_speed_mm_s(index, speed_mm_s)
+            }
             Mutation::StopAllAxes => self.stop_all_axes(),
+            Mutation::DebugPto { index } => self.emit_debug_pto(index),
+            Mutation::DebugLogAll => self.log_debug_all(),
         }
         Ok(())
     }

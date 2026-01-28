@@ -2,6 +2,9 @@ use super::SchneidemaschineV0;
 use crate::{MachineAct, MachineMessage, MachineValues};
 use std::time::{Duration, Instant};
 
+/// Debug log interval (1 second)
+const DEBUG_LOG_INTERVAL: Duration = Duration::from_secs(1);
+
 impl MachineAct for SchneidemaschineV0 {
     fn act(&mut self, now: Instant) {
         // Process incoming messages
@@ -18,7 +21,34 @@ impl MachineAct for SchneidemaschineV0 {
         // Emit state and live values at ~30 Hz
         if now.duration_since(self.last_state_emit) > Duration::from_secs_f64(1.0 / 30.0) {
             self.emit_live_values();
+            // Also emit debug info for PTO channel 2 (the active one)
+            self.emit_debug_pto(1);
             self.last_state_emit = now;
+        }
+
+        // Periodic debug log to console (every 1 second when axis is moving)
+        if self.axis_speeds[1] != 0 {
+            static mut LAST_DEBUG: Option<Instant> = None;
+            let should_log = unsafe {
+                match LAST_DEBUG {
+                    Some(last) => now.duration_since(last) > DEBUG_LOG_INTERVAL,
+                    None => true,
+                }
+            };
+            if should_log {
+                unsafe {
+                    LAST_DEBUG = Some(now);
+                }
+                let debug = self.get_debug_pto(1);
+                tracing::info!(
+                    "[PTO2] freq={}Hz pos={}p ({:.1}mm) ramp={} err={}",
+                    debug.frequency_setpoint_hz,
+                    debug.actual_position_pulses,
+                    debug.actual_position_mm,
+                    debug.ramp_active,
+                    debug.error
+                );
+            }
         }
     }
 

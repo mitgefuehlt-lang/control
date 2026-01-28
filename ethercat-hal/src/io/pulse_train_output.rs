@@ -71,6 +71,21 @@ impl<'device> PulseTrainOutput {
         let input = (self.get_input)();
         input.counter_value
     }
+
+    /// Get the full input state (feedback from device)
+    pub fn get_input(&self) -> PulseTrainOutputInput {
+        (self.get_input)()
+    }
+
+    /// Get the full output state (what we're sending)
+    pub fn get_output(&self) -> PulseTrainOutputOutput {
+        (self.get_output)()
+    }
+
+    /// Set the full output state
+    pub fn set_output(&self, output: PulseTrainOutputOutput) {
+        (self.set_output)(output);
+    }
 }
 
 #[derive(Debug, Clone)]
