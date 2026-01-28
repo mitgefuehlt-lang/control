@@ -27,15 +27,6 @@ jobs:
           tags: tag:ci
           hostname: github-deploy
 
-      - name: Debug Tailscale
-        run: |
-          echo "=== Tailscale Status ==="
-          tailscale status
-          echo "=== Tailscale IP ==="
-          tailscale ip -4
-          echo "=== Ping Target ==="
-          ping -c 3 ${{ secrets.DEPLOY_HOST }} || echo "Ping failed"
-
       - name: Start SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:

@@ -270,3 +270,14 @@
   - Serial: 21 (2. Prozessschritt, 1. Maschine)
   - Hardware: EK1100 + EL1008 + EL2008 + EL2522
   - Rollen: 0=Bus Coupler, 1=DI, 2=DO, 3=PTO
+- 2026-01-28 ~18:00 [Claude Opus 4.5]: **Tailscale ACLs neu konfiguriert** nach Reset durch Benutzer:
+  - ACLs komplett geloescht und neu eingetragen
+  - tagOwners: `tag:ci` und `tag:server` fuer `autogroup:admin`
+  - SSH-Regeln: `tag:ci` -> `tag:server` (users: qitech, root) + `autogroup:admin` -> `tag:server`
+  - Mini-PC: `sudo tailscale up --advertise-tags=tag:server --ssh --accept-routes`
+  - `sudo tailscale set --ssh` explizit ausgefuehrt
+- 2026-01-28 ~18:10 [Claude Opus 4.5]: **ERFOLG** - GitHub Actions Deploy ueber Tailscale funktioniert wieder!
+  - Workflow Run ID: 21447835275
+  - Tailscale-Verbindung: Runner sieht Mini-PC im Status
+  - Ping: 0% Paketverlust (Latenz initial hoch wegen NAT-Traversal)
+  - SSH + git pull + nixos-rebuild: Erfolgreich
