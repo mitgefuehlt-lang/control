@@ -28,31 +28,24 @@ export function SchneidemaschineV0MotorsPage() {
   } = useSchneidemaschineV0();
 
   // Local state for target speed and acceleration (what user enters)
-  const [targetSpeed, setTargetSpeed] = useState<number>(50);
-  const [targetAcceleration, setTargetAcceleration] = useState<number>(
-    getAxisAcceleration(MOTOR_AXIS_INDEX) ?? 100,
-  );
+  const [inputSpeed, setInputSpeed] = useState<number>(50);
+  const [inputAcceleration, setInputAcceleration] = useState<number>(100);
 
-  // Check if motor is running (speed > 0)
+  // Get actual values from server state
   const currentSpeed = getAxisSpeedMmS(MOTOR_AXIS_INDEX) ?? 0;
   const currentAcceleration = getAxisAcceleration(MOTOR_AXIS_INDEX) ?? 100;
-  const isRunning = currentSpeed > 0;
 
-  // Start motor with target speed (also applies acceleration first)
+  // Check server's target speed to determine if motor is commanded to run
+  const serverTargetSpeedHz = state?.axis_target_speeds[MOTOR_AXIS_INDEX] ?? 0;
+  const isMotorCommanded = serverTargetSpeedHz !== 0;
+
+  // Start motor with input speed
   const handleStart = () => {
-    if (targetSpeed > 0) {
-      // Apply acceleration setting first
-      if (targetAcceleration !== currentAcceleration) {
-        setAxisAcceleration(MOTOR_AXIS_INDEX, targetAcceleration);
-      }
-      setAxisSpeedMmS(MOTOR_AXIS_INDEX, targetSpeed);
+    if (inputSpeed > 0) {
+      // Apply acceleration first, then speed
+      setAxisAcceleration(MOTOR_AXIS_INDEX, inputAcceleration);
+      setAxisSpeedMmS(MOTOR_AXIS_INDEX, inputSpeed);
     }
-  };
-
-  // Apply acceleration change
-  const handleAccelerationChange = (accel: number) => {
-    setTargetAcceleration(accel);
-    setAxisAcceleration(MOTOR_AXIS_INDEX, accel);
   };
 
   // Stop motor
@@ -66,31 +59,32 @@ export function SchneidemaschineV0MotorsPage() {
         {/* Axis 1 Motor Control */}
         <ControlCard title="Achse 1 - Motor">
           <div className="flex flex-col gap-6">
-            {/* Speed Input */}
-            <Label label="Ziel-Geschwindigkeit">
-              <EditValue
-                value={targetSpeed}
-                title="Ziel-Geschwindigkeit"
-                min={1}
-                max={MAX_SPEED_MM_S}
-                step={1}
-                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
-                onChange={(speed) => setTargetSpeed(speed)}
-              />
-            </Label>
+            {/* Speed and Acceleration Inputs - side by side */}
+            <div className="grid grid-cols-2 gap-4">
+              <Label label="Ziel-Geschwindigkeit">
+                <EditValue
+                  value={inputSpeed}
+                  title="Ziel-Geschwindigkeit"
+                  min={1}
+                  max={MAX_SPEED_MM_S}
+                  step={1}
+                  renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
+                  onChange={(speed) => setInputSpeed(speed)}
+                />
+              </Label>
 
-            {/* Acceleration Input */}
-            <Label label="Beschleunigung">
-              <EditValue
-                value={targetAcceleration}
-                title="Beschleunigung"
-                min={MIN_ACCELERATION_MM_S2}
-                max={MAX_ACCELERATION_MM_S2}
-                step={10}
-                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
-                onChange={handleAccelerationChange}
-              />
-            </Label>
+              <Label label="Beschleunigung">
+                <EditValue
+                  value={inputAcceleration}
+                  title="Beschleunigung"
+                  min={MIN_ACCELERATION_MM_S2}
+                  max={MAX_ACCELERATION_MM_S2}
+                  step={10}
+                  renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
+                  onChange={(accel) => setInputAcceleration(accel)}
+                />
+              </Label>
+            </div>
 
             {/* Start/Stop Buttons */}
             <div className="flex gap-4">
@@ -98,7 +92,7 @@ export function SchneidemaschineV0MotorsPage() {
                 variant="default"
                 icon="lu:Play"
                 onClick={handleStart}
-                disabled={isDisabled || isRunning}
+                disabled={isDisabled || isMotorCommanded}
                 isLoading={isLoading}
                 className="flex-1 h-16 text-lg bg-green-600 hover:bg-green-700"
               >
@@ -109,7 +103,7 @@ export function SchneidemaschineV0MotorsPage() {
                 variant="destructive"
                 icon="lu:Square"
                 onClick={handleStop}
-                disabled={isDisabled || !isRunning}
+                disabled={isDisabled || !isMotorCommanded}
                 isLoading={isLoading}
                 className="flex-1 h-16 text-lg"
               >
@@ -134,7 +128,7 @@ export function SchneidemaschineV0MotorsPage() {
             </div>
 
             {/* Running Indicator */}
-            {isRunning && (
+            {isMotorCommanded && (
               <div className="text-center text-green-600 font-semibold animate-pulse">
                 Motor läuft
               </div>
