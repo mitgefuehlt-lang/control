@@ -12,6 +12,10 @@ import { useEffect, useMemo } from "react";
 import { useStateOptimistic } from "@/lib/useStateOptimistic";
 import { produce } from "immer";
 
+// Motor constants
+const PULSES_PER_MM = 20;
+const MAX_SPEED_MM_S = 230;
+
 function useSchneidemaschine(
   machine_identification_unique: MachineIdentificationUnique,
 ) {
@@ -81,6 +85,72 @@ function useSchneidemaschine(
     }
   };
 
+  // SetAxisSpeedMmS mutation
+  const setAxisSpeedMmSSchema = z.object({
+    action: z.literal("SetAxisSpeedMmS"),
+    value: z.object({
+      index: z.number(),
+      speed_mm_s: z.number(),
+    }),
+  });
+  const { request: requestSetAxisSpeedMmS } =
+    useMachineMutation(setAxisSpeedMmSSchema);
+
+  const setAxisSpeedMmS = (index: number, speed_mm_s: number) => {
+    updateStateOptimistically(
+      (current) => {
+        if (current.data.axis_speeds && index >= 0 && index < 2) {
+          // Convert mm/s to Hz for optimistic state
+          current.data.axis_speeds[index] = Math.round(speed_mm_s * PULSES_PER_MM);
+        }
+      },
+      () =>
+        requestSetAxisSpeedMmS({
+          machine_identification_unique,
+          data: {
+            action: "SetAxisSpeedMmS",
+            value: { index, speed_mm_s },
+          },
+        }),
+    );
+  };
+
+  // StopAllAxes mutation
+  const stopAllAxesSchema = z.object({
+    action: z.literal("StopAllAxes"),
+  });
+  const { request: requestStopAllAxes } = useMachineMutation(stopAllAxesSchema);
+
+  const stopAllAxes = () => {
+    updateStateOptimistically(
+      (current) => {
+        current.data.axis_speeds = [0, 0];
+      },
+      () =>
+        requestStopAllAxes({
+          machine_identification_unique,
+          data: { action: "StopAllAxes" },
+        }),
+    );
+  };
+
+  // Stop single axis helper
+  const stopAxis = (index: number) => {
+    setAxisSpeedMmS(index, 0);
+  };
+
+  // Helper to get axis speed in mm/s
+  const getAxisSpeedMmS = (index: number): number | undefined => {
+    const speedHz = stateOptimistic.value?.data.axis_speeds[index];
+    return speedHz !== undefined ? speedHz / PULSES_PER_MM : undefined;
+  };
+
+  // Helper to get axis position in mm
+  const getAxisPositionMm = (index: number): number | undefined => {
+    const pulses = liveValues?.data.axis_positions[index];
+    return pulses !== undefined ? pulses / PULSES_PER_MM : undefined;
+  };
+
   return {
     // State
     state: stateOptimistic.value?.data,
@@ -93,9 +163,22 @@ function useSchneidemaschine(
     isLoading: stateOptimistic.isOptimistic,
     isDisabled: !stateOptimistic.isInitialized,
 
-    // Actions
+    // Digital output actions
     setOutput,
     toggleOutput,
+
+    // Motor control actions
+    setAxisSpeedMmS,
+    stopAxis,
+    stopAllAxes,
+
+    // Motor helper functions
+    getAxisSpeedMmS,
+    getAxisPositionMm,
+
+    // Constants
+    MAX_SPEED_MM_S,
+    PULSES_PER_MM,
   };
 }
 
