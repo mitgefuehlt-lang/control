@@ -39,14 +39,10 @@ export const githubSourceSchema = z.object({
 export type GithubSource = z.infer<typeof githubSourceSchema>;
 
 export const defaultGithubSource: GithubSource = {
-  githubRepoOwner: "qitechgmbh",
+  githubRepoOwner: "mitgefuehlt-lang",
   githubRepoName: "control",
-  // This PAT only has read-only access to public qitechgmbh repos
-  // It's split into 3 parts to avoid being detected by secret scanning
-  githubToken:
-    "github_pat_" +
-    "11AG6Q4KQ0cfgyVayexvpp_" +
-    "XuYqnT8DHTiq0tN0VdWpKxhunrBPwydGlfPm7qUMEfM4V6T2YXRXuJ8AfDA",
+  // No token needed for public repos
+  githubToken: undefined,
 };
 
 export function GithubSourceDialog({ value, onChange }: Props) {

@@ -70,6 +70,9 @@ import { MetricsControlPage } from "@/metrics/MetricsControlPage";
 import { WagoPower1Page } from "@/machines/wago_power/wago_power1/WagoPower1Page";
 import { WagoPower1ControlPage } from "@/machines/wago_power/wago_power1/WagoPower1ControlPage";
 
+import { SchneidemaschineV0Page } from "@/machines/schneidemaschine/schneidemaschine_v0/SchneidemaschineV0Page";
+import { SchneidemaschineV0ControlPage } from "@/machines/schneidemaschine/schneidemaschine_v0/SchneidemaschineV0ControlPage";
+
 // make a route tree like this
 // _mainNavigation/machines/winder2/$serial/control
 // _mainNavigation/configuration/a
@@ -353,6 +356,18 @@ export const wagoPower1ControlRoute = createRoute({
   component: () => <WagoPower1ControlPage />,
 });
 
+export const schneidemaschineV0SerialRoute = createRoute({
+  getParentRoute: () => machinesRoute,
+  path: "schneidemaschine_v0/$serial",
+  component: () => <SchneidemaschineV0Page />,
+});
+
+export const schneidemaschineV0ControlRoute = createRoute({
+  getParentRoute: () => schneidemaschineV0SerialRoute,
+  path: "control",
+  component: () => <SchneidemaschineV0ControlPage />,
+});
+
 export const setupRoute = createRoute({
   getParentRoute: () => sidebarRoute,
   path: "setup",
@@ -504,6 +519,8 @@ export const rootTree = RootRoute.addChildren([
       wagoPower1SerialRoute.addChildren([wagoPower1ControlRoute]),
 
       buffer1SerialRoute.addChildren([buffer1ControlRoute]),
+
+      schneidemaschineV0SerialRoute.addChildren([schneidemaschineV0ControlRoute]),
     ]),
   ]),
 ]);

@@ -136,7 +136,8 @@ export function mainMessageHandler(
           ethercatInterfaceDiscovery: validatedEvent,
         }));
       } else {
-        handleUnhandledEventError(eventName);
+        // Ignore unknown events instead of throwing error
+        console.warn(`mainNamespace: Unknown event "${eventName}" ignored`);
       }
     } catch (error) {
       if (error instanceof z.ZodError) {
