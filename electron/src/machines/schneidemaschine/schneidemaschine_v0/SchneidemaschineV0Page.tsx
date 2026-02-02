@@ -14,6 +14,12 @@ export function SchneidemaschineV0Page() {
           title: "Control",
           icon: "lu:CirclePlay",
         },
+        {
+          link: "motors",
+          activeLink: "motors",
+          title: "Motors",
+          icon: "lu:Cog",
+        },
       ]}
     />
   );
