@@ -16,8 +16,13 @@ impl MachineAct for SchneidemaschineV0 {
         let dt = now.duration_since(self.last_ramp_update).as_secs_f32();
         if dt > 0.001 {
             // At least 1ms passed
-            self.update_software_ramp(dt);
+            let speed_changed = self.update_software_ramp(dt);
             self.last_ramp_update = now;
+
+            // Emit state when speed changes during ramping
+            if speed_changed {
+                self.emit_state();
+            }
         }
 
         // Emit state and live values at ~30 Hz

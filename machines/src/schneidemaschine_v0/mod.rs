@@ -203,7 +203,9 @@ impl SchneidemaschineV0 {
 
     /// Software ramp: update axis_speeds towards target_speeds based on acceleration
     /// Called from act() loop at ~30Hz
-    pub fn update_software_ramp(&mut self, dt_secs: f32) {
+    /// Returns true if any speed changed (for state emission)
+    pub fn update_software_ramp(&mut self, dt_secs: f32) -> bool {
+        let mut changed = false;
         for i in 0..self.axis_speeds.len() {
             let current = self.axis_speeds[i];
             let target = self.axis_target_speeds[i];
@@ -211,7 +213,7 @@ impl SchneidemaschineV0 {
             if current != target {
                 // Convert acceleration from mm/s² to Hz/s
                 let accel_hz_per_s = self.axis_accelerations[i] * mechanics::PULSES_PER_MM;
-                let delta_hz = (accel_hz_per_s * dt_secs) as i32;
+                let delta_hz = (accel_hz_per_s * dt_secs) as i32.max(1); // At least 1 Hz step
 
                 // Move towards target
                 let new_speed = if current < target {
@@ -225,8 +227,10 @@ impl SchneidemaschineV0 {
                 // Apply new speed to hardware
                 self.axis_speeds[i] = new_speed;
                 self.axes[i].set_frequency(new_speed);
+                changed = true;
             }
         }
+        changed
     }
 
     // ============ Debug Functions ============
