@@ -12,29 +12,18 @@ impl MachineAct for SchneidemaschineV0 {
             self.act_machine_message(msg);
         }
 
-        // DI1 controls motor on Channel 2: press = run at 50 mm/s, release = stop
-        let input_pressed = self.digital_inputs[0].get_value().unwrap_or(false);
-        let target_speed = if input_pressed { 1000 } else { 0 }; // 1000 Hz = 50 mm/s
-        if self.axis_speeds[1] != target_speed {
-            self.set_axis_speed(1, target_speed);
-            tracing::info!(
-                "[SchneidemaschineV0] DI1={} -> Motor speed set to {} Hz ({} mm/s)",
-                input_pressed,
-                target_speed,
-                target_speed as f32 / 20.0
-            );
-        }
+        // Motor control is now handled via UI mutations (SetAxisSpeedMmS, StopAllAxes)
+        // No automatic DI1 override - the UI has full control
 
         // Emit state and live values at ~30 Hz
         if now.duration_since(self.last_state_emit) > Duration::from_secs_f64(1.0 / 30.0) {
             self.emit_live_values();
-            // Also emit debug info for PTO channel 2 (the active one)
-            self.emit_debug_pto(1);
             self.last_state_emit = now;
         }
 
-        // Periodic debug log to console (every 1 second when axis is moving)
-        if self.axis_speeds[1] != 0 {
+        // Periodic debug log to console (every 1 second when any axis is moving)
+        let any_axis_moving = self.axis_speeds.iter().any(|&s| s != 0);
+        if any_axis_moving {
             static mut LAST_DEBUG: Option<Instant> = None;
             let should_log = unsafe {
                 match LAST_DEBUG {
@@ -46,15 +35,22 @@ impl MachineAct for SchneidemaschineV0 {
                 unsafe {
                     LAST_DEBUG = Some(now);
                 }
-                let pto_info = self.get_debug_pto(1);
-                tracing::info!(
-                    "[PTO2] freq={}Hz pos={}p ({:.1}mm) ramp={} err={}",
-                    pto_info.frequency_setpoint_hz,
-                    pto_info.actual_position_pulses,
-                    pto_info.actual_position_mm,
-                    pto_info.ramp_active,
-                    pto_info.error
-                );
+                // Log info for the moving axis
+                for (i, &speed) in self.axis_speeds.iter().enumerate() {
+                    if speed != 0 {
+                        let pto_info = self.get_debug_pto(i);
+                        tracing::info!(
+                            "[Achse{}] freq={}Hz ({:.1}mm/s) pos={}p ({:.1}mm) ramp={} err={}",
+                            i + 1,
+                            pto_info.frequency_setpoint_hz,
+                            pto_info.frequency_setpoint_mm_s,
+                            pto_info.actual_position_pulses,
+                            pto_info.actual_position_mm,
+                            pto_info.ramp_active,
+                            pto_info.error
+                        );
+                    }
+                }
             }
         }
     }
