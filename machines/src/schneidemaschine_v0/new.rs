@@ -114,6 +114,8 @@ impl MachineNewTrait for SchneidemaschineV0 {
                     base_frequency_1: 5000,
                     // Frequency factor for direct input mode (100 = 1:1)
                     frequency_factor: 100,
+                    // Enable travel distance control for position targeting
+                    travel_distance_control: true,
                     // Disable watchdog for testing
                     watchdog_timer_deactive: true,
                     ..Default::default()
@@ -155,6 +157,8 @@ impl MachineNewTrait for SchneidemaschineV0 {
                 axis_speeds: [0; 2],
                 axis_target_speeds: [0; 2],
                 axis_accelerations: [100.0; 2],  // Default: 100 mm/s²
+                axis_target_positions: [0; 2],
+                axis_position_mode: [false; 2],
                 last_ramp_update: Instant::now(),
             };
 

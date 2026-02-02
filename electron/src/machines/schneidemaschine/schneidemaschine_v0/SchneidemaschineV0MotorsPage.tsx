@@ -16,6 +16,7 @@ export function SchneidemaschineV0MotorsPage() {
     state,
     setAxisSpeedMmS,
     setAxisAcceleration,
+    moveToPosition,
     stopAxis,
     getAxisSpeedMmS,
     getAxisPositionMm,
@@ -27,25 +28,32 @@ export function SchneidemaschineV0MotorsPage() {
     MIN_ACCELERATION_MM_S2,
   } = useSchneidemaschineV0();
 
-  // Local state for target speed and acceleration (what user enters)
+  // Local state for inputs (what user enters)
   const [inputSpeed, setInputSpeed] = useState<number>(50);
   const [inputAcceleration, setInputAcceleration] = useState<number>(100);
+  const [inputPosition, setInputPosition] = useState<number>(0);
 
   // Get actual values from server state
   const currentSpeed = getAxisSpeedMmS(MOTOR_AXIS_INDEX) ?? 0;
   const currentAcceleration = getAxisAcceleration(MOTOR_AXIS_INDEX) ?? 100;
+  const currentPosition = getAxisPositionMm(MOTOR_AXIS_INDEX) ?? 0;
 
   // Check server's target speed to determine if motor is commanded to run
   const serverTargetSpeedHz = state?.axis_target_speeds[MOTOR_AXIS_INDEX] ?? 0;
   const isMotorCommanded = serverTargetSpeedHz !== 0;
 
-  // Start motor with input speed
+  // Start motor with input speed (continuous run)
   const handleStart = () => {
     if (inputSpeed > 0) {
-      // Apply acceleration first, then speed
       setAxisAcceleration(MOTOR_AXIS_INDEX, inputAcceleration);
       setAxisSpeedMmS(MOTOR_AXIS_INDEX, inputSpeed);
     }
+  };
+
+  // Move to target position
+  const handleMoveToPosition = () => {
+    setAxisAcceleration(MOTOR_AXIS_INDEX, inputAcceleration);
+    moveToPosition(MOTOR_AXIS_INDEX, inputPosition, inputSpeed);
   };
 
   // Stop motor
@@ -59,12 +67,12 @@ export function SchneidemaschineV0MotorsPage() {
         {/* Axis 1 Motor Control */}
         <ControlCard title="Achse 1 - Motor">
           <div className="flex flex-col gap-6">
-            {/* Speed and Acceleration Inputs - side by side */}
-            <div className="grid grid-cols-2 gap-4">
-              <Label label="Ziel-Geschwindigkeit">
+            {/* Speed, Acceleration, Position Inputs - side by side */}
+            <div className="grid grid-cols-3 gap-4">
+              <Label label="Geschwindigkeit">
                 <EditValue
                   value={inputSpeed}
-                  title="Ziel-Geschwindigkeit"
+                  title="Geschwindigkeit"
                   min={1}
                   max={MAX_SPEED_MM_S}
                   step={1}
@@ -84,9 +92,21 @@ export function SchneidemaschineV0MotorsPage() {
                   onChange={(accel) => setInputAcceleration(accel)}
                 />
               </Label>
+
+              <Label label="Ziel-Position">
+                <EditValue
+                  value={inputPosition}
+                  title="Ziel-Position"
+                  min={0}
+                  max={10000}
+                  step={10}
+                  renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
+                  onChange={(pos) => setInputPosition(pos)}
+                />
+              </Label>
             </div>
 
-            {/* Start/Stop Buttons */}
+            {/* Start/Stop/Position Buttons */}
             <div className="flex gap-4">
               <TouchButton
                 variant="default"
@@ -94,9 +114,20 @@ export function SchneidemaschineV0MotorsPage() {
                 onClick={handleStart}
                 disabled={isDisabled || isMotorCommanded}
                 isLoading={isLoading}
-                className="flex-1 h-16 text-lg bg-green-600 hover:bg-green-700"
+                className="flex-1 h-14 text-base bg-green-600 hover:bg-green-700"
               >
                 START
+              </TouchButton>
+
+              <TouchButton
+                variant="default"
+                icon="lu:MapPin"
+                onClick={handleMoveToPosition}
+                disabled={isDisabled || isMotorCommanded}
+                isLoading={isLoading}
+                className="flex-1 h-14 text-base bg-blue-600 hover:bg-blue-700"
+              >
+                ZUR POSITION
               </TouchButton>
 
               <TouchButton
@@ -105,7 +136,7 @@ export function SchneidemaschineV0MotorsPage() {
                 onClick={handleStop}
                 disabled={isDisabled || !isMotorCommanded}
                 isLoading={isLoading}
-                className="flex-1 h-16 text-lg"
+                className="flex-1 h-14 text-base"
               >
                 STOP
               </TouchButton>

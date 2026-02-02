@@ -142,6 +142,37 @@ function useSchneidemaschine(
     setAxisSpeedMmS(index, 0);
   };
 
+  // MoveToPosition mutation
+  const moveToPositionSchema = z.object({
+    action: z.literal("MoveToPosition"),
+    value: z.object({
+      index: z.number(),
+      position_mm: z.number(),
+      speed_mm_s: z.number(),
+    }),
+  });
+  const { request: requestMoveToPosition } =
+    useMachineMutation(moveToPositionSchema);
+
+  const moveToPosition = (index: number, position_mm: number, speed_mm_s: number) => {
+    updateStateOptimistically(
+      (current) => {
+        if (current.data.axis_target_positions && index >= 0 && index < 2) {
+          current.data.axis_target_positions[index] = Math.round(position_mm * PULSES_PER_MM);
+          current.data.axis_position_mode[index] = true;
+        }
+      },
+      () =>
+        requestMoveToPosition({
+          machine_identification_unique,
+          data: {
+            action: "MoveToPosition",
+            value: { index, position_mm, speed_mm_s },
+          },
+        }),
+    );
+  };
+
   // SetAxisAcceleration mutation
   const setAxisAccelerationSchema = z.object({
     action: z.literal("SetAxisAcceleration"),
@@ -207,6 +238,7 @@ function useSchneidemaschine(
     // Motor control actions
     setAxisSpeedMmS,
     setAxisAcceleration,
+    moveToPosition,
     stopAxis,
     stopAllAxes,
 

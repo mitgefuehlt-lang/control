@@ -17,6 +17,8 @@ pub struct StateEvent {
     pub axis_speeds: [i32; 2],
     pub axis_target_speeds: [i32; 2],
     pub axis_accelerations: [f32; 2],
+    pub axis_target_positions: [u32; 2],
+    pub axis_position_mode: [bool; 2],
 }
 
 impl StateEvent {
@@ -91,6 +93,8 @@ pub enum Mutation {
     SetAxisSpeedMmS { index: usize, speed_mm_s: f32 },
     /// Set acceleration for a single axis (in mm/s²)
     SetAxisAcceleration { index: usize, accel_mm_s2: f32 },
+    /// Move axis to a target position (in mm) with given speed (mm/s)
+    MoveToPosition { index: usize, position_mm: f32, speed_mm_s: f32 },
     /// Stop all axes
     StopAllAxes,
     /// Request debug info for a PTO channel (emits DebugPtoEvent)
@@ -144,6 +148,9 @@ impl MachineApi for SchneidemaschineV0 {
             }
             Mutation::SetAxisAcceleration { index, accel_mm_s2 } => {
                 self.set_axis_acceleration(index, accel_mm_s2)
+            }
+            Mutation::MoveToPosition { index, position_mm, speed_mm_s } => {
+                self.move_to_position_mm(index, position_mm, speed_mm_s)
             }
             Mutation::StopAllAxes => self.stop_all_axes(),
             Mutation::DebugPto { index } => self.emit_debug_pto(index),

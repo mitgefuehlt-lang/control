@@ -69,6 +69,8 @@ pub struct SchneidemaschineV0 {
     pub axis_speeds: [i32; 2],           // Current speed (Hz) - used by software ramp
     pub axis_target_speeds: [i32; 2],    // Target speed (Hz) - what we want to reach
     pub axis_accelerations: [f32; 2],    // Acceleration in mm/s² per axis
+    pub axis_target_positions: [u32; 2], // Target position in pulses for position mode
+    pub axis_position_mode: [bool; 2],   // True if axis is in position mode (auto-stop at target)
     pub last_ramp_update: Instant,       // For software ramp timing
 }
 
@@ -95,6 +97,8 @@ impl SchneidemaschineV0 {
             axis_speeds: self.axis_speeds,
             axis_target_speeds: self.axis_target_speeds,
             axis_accelerations: self.axis_accelerations,
+            axis_target_positions: self.axis_target_positions,
+            axis_position_mode: self.axis_position_mode,
         }
     }
 
@@ -201,12 +205,74 @@ impl SchneidemaschineV0 {
         }
     }
 
+    /// Move to a target position in mm
+    /// This starts the motor and auto-stops when position is reached
+    pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
+        if index < self.axes.len() {
+            let target_pulses = (position_mm * mechanics::PULSES_PER_MM) as u32;
+            let current_pulses = self.axes[index].get_position();
+
+            // Determine direction based on current vs target position
+            let speed_hz = if target_pulses > current_pulses {
+                mechanics::mm_per_s_to_hz(speed_mm_s.abs())
+            } else {
+                mechanics::mm_per_s_to_hz(-speed_mm_s.abs())
+            };
+
+            // Set position mode
+            self.axis_target_positions[index] = target_pulses;
+            self.axis_position_mode[index] = true;
+
+            // Set target speed (software ramp will handle acceleration)
+            self.axis_target_speeds[index] = speed_hz;
+
+            // Set target counter value in hardware for auto-stop
+            let mut output = self.axes[index].get_output();
+            output.target_counter_value = target_pulses;
+            self.axes[index].set_output(output);
+
+            self.emit_state();
+            tracing::info!(
+                "[SchneidemaschineV0] Axis {} moving to {:.1} mm ({} pulses) at {:.1} mm/s",
+                index,
+                position_mm,
+                target_pulses,
+                speed_mm_s
+            );
+        }
+    }
+
     /// Software ramp: update axis_speeds towards target_speeds based on acceleration
     /// Called from act() loop at ~30Hz
     /// Returns true if any speed changed (for state emission)
     pub fn update_software_ramp(&mut self, dt_secs: f32) -> bool {
         let mut changed = false;
         for i in 0..self.axis_speeds.len() {
+            // Check if we're in position mode and reached target
+            if self.axis_position_mode[i] {
+                let current_pos = self.axes[i].get_position();
+                let target_pos = self.axis_target_positions[i];
+                let moving_forward = self.axis_target_speeds[i] > 0;
+
+                // Check if we've reached or passed the target
+                let reached = if moving_forward {
+                    current_pos >= target_pos
+                } else {
+                    current_pos <= target_pos
+                };
+
+                if reached {
+                    // Stop the motor
+                    self.axis_target_speeds[i] = 0;
+                    self.axis_position_mode[i] = false;
+                    tracing::info!(
+                        "[SchneidemaschineV0] Axis {} reached target position {} pulses",
+                        i,
+                        target_pos
+                    );
+                }
+            }
+
             let current = self.axis_speeds[i];
             let target = self.axis_target_speeds[i];
 
