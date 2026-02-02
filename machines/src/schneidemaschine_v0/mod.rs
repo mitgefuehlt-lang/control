@@ -213,7 +213,7 @@ impl SchneidemaschineV0 {
             if current != target {
                 // Convert acceleration from mm/s² to Hz/s
                 let accel_hz_per_s = self.axis_accelerations[i] * mechanics::PULSES_PER_MM;
-                let delta_hz = (accel_hz_per_s * dt_secs) as i32.max(1); // At least 1 Hz step
+                let delta_hz = ((accel_hz_per_s * dt_secs) as i32).max(1); // At least 1 Hz step
 
                 // Move towards target
                 let new_speed = if current < target {
