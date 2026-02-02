@@ -7,7 +7,7 @@ import { TouchButton } from "@/components/touch/TouchButton";
 import { EditValue } from "@/control/EditValue";
 import { Label } from "@/control/Label";
 import { Badge } from "@/components/ui/badge";
-import { roundToDecimals } from "@/lib/roundTo";
+import { roundToDecimals } from "@/lib/decimal";
 
 export function SchneidemaschineV0ControlPage() {
   const {
