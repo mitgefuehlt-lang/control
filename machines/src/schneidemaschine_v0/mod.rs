@@ -66,7 +66,10 @@ pub struct SchneidemaschineV0 {
 
     // Pulse Train Outputs (1x EL2522 = 2 channels)
     pub axes: [PulseTrainOutput; 2],
-    pub axis_speeds: [i32; 2],
+    pub axis_speeds: [i32; 2],           // Current speed (Hz) - used by software ramp
+    pub axis_target_speeds: [i32; 2],    // Target speed (Hz) - what we want to reach
+    pub axis_accelerations: [f32; 2],    // Acceleration in mm/s² per axis
+    pub last_ramp_update: Instant,       // For software ramp timing
 }
 
 impl Machine for SchneidemaschineV0 {
@@ -90,6 +93,8 @@ impl SchneidemaschineV0 {
         StateEvent {
             output_states: self.output_states,
             axis_speeds: self.axis_speeds,
+            axis_target_speeds: self.axis_target_speeds,
+            axis_accelerations: self.axis_accelerations,
         }
     }
 
@@ -162,20 +167,69 @@ impl SchneidemaschineV0 {
         self.emit_state();
     }
 
-    // ============ Debug Functions ============
+    // ============ Speed/Acceleration Functions ============
 
-    /// Set axis speed in mm/s (converts to Hz internally)
+    /// Set target axis speed in mm/s (software ramp will handle transition)
     /// Positive = forward, Negative = backward
     pub fn set_axis_speed_mm_s(&mut self, index: usize, mm_per_s: f32) {
-        let hz = mechanics::mm_per_s_to_hz(mm_per_s);
-        self.set_axis_speed(index, hz);
-        tracing::info!(
-            "[SchneidemaschineV0] Axis {} speed set: {:.1} mm/s = {} Hz",
-            index,
-            mm_per_s,
-            hz
-        );
+        if index < self.axis_target_speeds.len() {
+            let hz = mechanics::mm_per_s_to_hz(mm_per_s);
+            self.axis_target_speeds[index] = hz;
+            self.emit_state();
+            tracing::info!(
+                "[SchneidemaschineV0] Axis {} target speed set: {:.1} mm/s = {} Hz (accel: {:.1} mm/s²)",
+                index,
+                mm_per_s,
+                hz,
+                self.axis_accelerations[index]
+            );
+        }
     }
+
+    /// Set axis acceleration in mm/s²
+    pub fn set_axis_acceleration(&mut self, index: usize, accel_mm_s2: f32) {
+        if index < self.axis_accelerations.len() {
+            // Clamp acceleration to reasonable range (1-500 mm/s²)
+            let clamped = accel_mm_s2.clamp(1.0, 500.0);
+            self.axis_accelerations[index] = clamped;
+            self.emit_state();
+            tracing::info!(
+                "[SchneidemaschineV0] Axis {} acceleration set: {:.1} mm/s²",
+                index,
+                clamped
+            );
+        }
+    }
+
+    /// Software ramp: update axis_speeds towards target_speeds based on acceleration
+    /// Called from act() loop at ~30Hz
+    pub fn update_software_ramp(&mut self, dt_secs: f32) {
+        for i in 0..self.axis_speeds.len() {
+            let current = self.axis_speeds[i];
+            let target = self.axis_target_speeds[i];
+
+            if current != target {
+                // Convert acceleration from mm/s² to Hz/s
+                let accel_hz_per_s = self.axis_accelerations[i] * mechanics::PULSES_PER_MM;
+                let delta_hz = (accel_hz_per_s * dt_secs) as i32;
+
+                // Move towards target
+                let new_speed = if current < target {
+                    // Accelerating
+                    (current + delta_hz).min(target)
+                } else {
+                    // Decelerating
+                    (current - delta_hz).max(target)
+                };
+
+                // Apply new speed to hardware
+                self.axis_speeds[i] = new_speed;
+                self.axes[i].set_frequency(new_speed);
+            }
+        }
+    }
+
+    // ============ Debug Functions ============
 
     /// Get comprehensive debug info for PTO channel
     pub fn get_debug_pto(&self, index: usize) -> DebugPtoEvent {

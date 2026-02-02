@@ -35,6 +35,8 @@ export const stateEventDataSchema = z.object({
     z.boolean(),
   ]),
   axis_speeds: z.tuple([z.number(), z.number()]),
+  axis_target_speeds: z.tuple([z.number(), z.number()]),
+  axis_accelerations: z.tuple([z.number(), z.number()]),
 });
 
 /**

@@ -15,6 +15,8 @@ use std::sync::Arc;
 pub struct StateEvent {
     pub output_states: [bool; 8],
     pub axis_speeds: [i32; 2],
+    pub axis_target_speeds: [i32; 2],
+    pub axis_accelerations: [f32; 2],
 }
 
 impl StateEvent {
@@ -87,6 +89,8 @@ pub enum Mutation {
     SetAxisSpeed { index: usize, speed: i32 },
     /// Set speed for a single axis (in mm/s)
     SetAxisSpeedMmS { index: usize, speed_mm_s: f32 },
+    /// Set acceleration for a single axis (in mm/s²)
+    SetAxisAcceleration { index: usize, accel_mm_s2: f32 },
     /// Stop all axes
     StopAllAxes,
     /// Request debug info for a PTO channel (emits DebugPtoEvent)
@@ -137,6 +141,9 @@ impl MachineApi for SchneidemaschineV0 {
             Mutation::SetAxisSpeed { index, speed } => self.set_axis_speed(index, speed),
             Mutation::SetAxisSpeedMmS { index, speed_mm_s } => {
                 self.set_axis_speed_mm_s(index, speed_mm_s)
+            }
+            Mutation::SetAxisAcceleration { index, accel_mm_s2 } => {
+                self.set_axis_acceleration(index, accel_mm_s2)
             }
             Mutation::StopAllAxes => self.stop_all_axes(),
             Mutation::DebugPto { index } => self.emit_debug_pto(index),

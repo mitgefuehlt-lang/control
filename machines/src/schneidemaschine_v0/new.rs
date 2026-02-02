@@ -97,7 +97,7 @@ impl MachineNewTrait for SchneidemaschineV0 {
 
             // Configure EL2522 for Pulse+Direction mode on Channel 2
             // Mechanics: 200 pulses/rev, 10mm lead -> 20 pulses/mm
-            // Speed 50 mm/s -> 1000 Hz, Accel 100 mm/s² -> ramp time ~500ms
+            // Software ramping is used for acceleration control (hardware ramp disabled)
             let el2522_config = EL2522Configuration {
                 // Channel 1: Default (not used currently)
                 channel1_configuration: EL2522ChannelConfiguration::default(),
@@ -105,17 +105,13 @@ impl MachineNewTrait for SchneidemaschineV0 {
                 channel2_configuration: EL2522ChannelConfiguration {
                     // Pulse + Direction mode for stepper driver
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    // Enable ramp function for smooth acceleration
-                    ramp_function_active: true,
+                    // Disable hardware ramp - we use software ramping for dynamic acceleration
+                    ramp_function_active: false,
                     // Direct frequency input (Hz value directly controls frequency)
                     direct_input_mode: true,
-                    // Base frequency 1: Max frequency in Hz (for ramp calculation)
+                    // Base frequency 1: Max frequency in Hz
                     // 230 mm/s * 20 pulses/mm = 4600 Hz, use 5000 Hz as base
                     base_frequency_1: 5000,
-                    // Ramp time constant: time in ms to go from 0 to base_frequency
-                    // Accel 100 mm/s² = 2000 pulses/s², from 0 to 5000 Hz = 2.5s = 2500ms
-                    ramp_time_constant_rising: 2500,
-                    ramp_time_constant_falling: 2500,
                     // Frequency factor for direct input mode (100 = 1:1)
                     frequency_factor: 100,
                     // Disable watchdog for testing
@@ -133,7 +129,7 @@ impl MachineNewTrait for SchneidemaschineV0 {
                 .await?;
 
             tracing::info!(
-                "[SchneidemaschineV0] EL2522 configured: Channel 2 = PulseDirection mode, base_freq=5000Hz, ramp=2500ms"
+                "[SchneidemaschineV0] EL2522 configured: Channel 2 = PulseDirection mode, base_freq=5000Hz, software ramp enabled"
             );
 
             // Create PulseTrainOutput array for 2 axes
@@ -157,6 +153,9 @@ impl MachineNewTrait for SchneidemaschineV0 {
                 output_states: [false; 8],
                 axes,
                 axis_speeds: [0; 2],
+                axis_target_speeds: [0; 2],
+                axis_accelerations: [100.0; 2],  // Default: 100 mm/s²
+                last_ramp_update: Instant::now(),
             };
 
             machine.emit_state();

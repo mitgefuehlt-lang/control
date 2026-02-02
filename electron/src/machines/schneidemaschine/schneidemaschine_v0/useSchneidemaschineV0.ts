@@ -15,6 +15,9 @@ import { produce } from "immer";
 // Motor constants
 const PULSES_PER_MM = 20;
 const MAX_SPEED_MM_S = 230;
+const DEFAULT_ACCELERATION_MM_S2 = 100;
+const MAX_ACCELERATION_MM_S2 = 500;
+const MIN_ACCELERATION_MM_S2 = 1;
 
 function useSchneidemaschine(
   machine_identification_unique: MachineIdentificationUnique,
@@ -139,6 +142,35 @@ function useSchneidemaschine(
     setAxisSpeedMmS(index, 0);
   };
 
+  // SetAxisAcceleration mutation
+  const setAxisAccelerationSchema = z.object({
+    action: z.literal("SetAxisAcceleration"),
+    value: z.object({
+      index: z.number(),
+      accel_mm_s2: z.number(),
+    }),
+  });
+  const { request: requestSetAxisAcceleration } =
+    useMachineMutation(setAxisAccelerationSchema);
+
+  const setAxisAcceleration = (index: number, accel_mm_s2: number) => {
+    updateStateOptimistically(
+      (current) => {
+        if (current.data.axis_accelerations && index >= 0 && index < 2) {
+          current.data.axis_accelerations[index] = accel_mm_s2;
+        }
+      },
+      () =>
+        requestSetAxisAcceleration({
+          machine_identification_unique,
+          data: {
+            action: "SetAxisAcceleration",
+            value: { index, accel_mm_s2 },
+          },
+        }),
+    );
+  };
+
   // Helper to get axis speed in mm/s
   const getAxisSpeedMmS = (index: number): number | undefined => {
     const speedHz = stateOptimistic.value?.data.axis_speeds[index];
@@ -149,6 +181,11 @@ function useSchneidemaschine(
   const getAxisPositionMm = (index: number): number | undefined => {
     const pulses = liveValues?.data.axis_positions[index];
     return pulses !== undefined ? pulses / PULSES_PER_MM : undefined;
+  };
+
+  // Helper to get axis acceleration in mm/s²
+  const getAxisAcceleration = (index: number): number | undefined => {
+    return stateOptimistic.value?.data.axis_accelerations[index];
   };
 
   return {
@@ -169,15 +206,20 @@ function useSchneidemaschine(
 
     // Motor control actions
     setAxisSpeedMmS,
+    setAxisAcceleration,
     stopAxis,
     stopAllAxes,
 
     // Motor helper functions
     getAxisSpeedMmS,
     getAxisPositionMm,
+    getAxisAcceleration,
 
     // Constants
     MAX_SPEED_MM_S,
+    MAX_ACCELERATION_MM_S2,
+    MIN_ACCELERATION_MM_S2,
+    DEFAULT_ACCELERATION_MM_S2,
     PULSES_PER_MM,
   };
 }

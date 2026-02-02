@@ -12,8 +12,13 @@ impl MachineAct for SchneidemaschineV0 {
             self.act_machine_message(msg);
         }
 
-        // Motor control is now handled via UI mutations (SetAxisSpeedMmS, StopAllAxes)
-        // No automatic DI1 override - the UI has full control
+        // Software ramp: update speeds towards targets based on acceleration
+        let dt = now.duration_since(self.last_ramp_update).as_secs_f32();
+        if dt > 0.001 {
+            // At least 1ms passed
+            self.update_software_ramp(dt);
+            self.last_ramp_update = now;
+        }
 
         // Emit state and live values at ~30 Hz
         if now.duration_since(self.last_state_emit) > Duration::from_secs_f64(1.0 / 30.0) {
