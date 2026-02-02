@@ -600,3 +600,382 @@ Formel: `Hz = mm/s * 20` (weil 20 Pulse/mm)
 - Positionierung implementieren (Zielposition anfahren)
 - Endschalter/Referenzfahrt hinzufuegen
 - Zweite Achse (Channel 1) aktivieren
+
+---
+
+## Session 2026-01-30: SchneidemaschineV0 Frontend UI
+
+### Kontext
+- Arbeiten aus dem Homeoffice via Parsec (Zugriff auf Tower)
+- Mini-PC (192.168.178.106) laeuft mit Backend und Hardware
+- Ziel: UI fuer SchneidemaschineV0 erstellen, beginnend mit einem einfachen Taster-Button
+
+### Erreichte Meilensteine
+
+#### 1. Mini-PC Status geprueft
+- Mini-PC online auf 192.168.178.106
+- `qitech-control-server` aktiv (Uptime: 7 Minuten nach Boot)
+- SchneidemaschineV0 geladen (Serial: 21)
+
+#### 2. Frontend-Analyse durchgefuehrt
+- Komplette UI-Architektur analysiert (React 19, Tailwind CSS 4, Zustand, SocketIO)
+- Bestehende Maschinen-Patterns untersucht (Mock1, Extruder2, Laser1)
+- Backend-API der SchneidemaschineV0 mit Frontend-Anforderungen abgeglichen
+
+#### 3. SchneidemaschineV0 Frontend erstellt
+Neue Dateien in `electron/src/machines/schneidemaschine/schneidemaschine_v0/`:
+
+| Datei | Zweck |
+|-------|-------|
+| `schneidemaschineV0Namespace.ts` | Zod-Schemas, Zustand Store, WebSocket Event Handler |
+| `useSchneidemaschineV0.ts` | React Hook mit `setOutput()` und `toggleOutput()` |
+| `SchneidemaschineV0Page.tsx` | Navigation/Topbar mit Control-Tab |
+| `SchneidemaschineV0ControlPage.tsx` | UI mit "Taster 1" Button fuer DO0 |
+
+Routes registriert in `electron/src/routes/routes.tsx`.
+
+#### 4. Remote-Zugriff eingerichtet
+Problem: UI auf Tower, Backend auf Mini-PC - wie verbinden?
+
+**Loesung: SSH-Tunnel**
+```bash
+ssh -N -L 3001:localhost:3001 qitech@192.168.178.106
+```
+- Tower localhost:3001 wird auf Mini-PC localhost:3001 weitergeleitet
+- NixOS Firewall blockiert Port 3001 extern, aber SSH (Port 22) ist offen
+- Tunnel laeuft im Hintergrund, UI verbindet sich ueber localhost
+
+### Fehler und Loesungen
+
+| Fehler | Ursache | Loesung |
+|--------|---------|---------|
+| Mutation-Format falsch | Backend nutzt `#[serde(tag="action", content="value")]` | JSON geaendert: `{ action: "SetOutput", value: { index, on } }` |
+| `is_default_state` nicht gefunden | Backend sendet dieses Feld nicht | Aus Zod-Schema entfernt, defaultState-Logik angepasst |
+| `startsWith` undefined | `activeLink` Property fehlte in Topbar items | `activeLink: "control"` hinzugefuegt |
+| Port 3001 nicht erreichbar | NixOS Firewall blockiert Port | SSH-Tunnel statt direkter Verbindung |
+| `npm run dev` nicht gefunden | Falsches Script | `npm start` verwendet (Vite) |
+| Vite nicht gefunden | Dependencies fehlten | `npm install` ausgefuehrt |
+
+### Technische Details
+
+**Mutation-Format (korrekt):**
+```typescript
+// Frontend sendet:
+{
+  action: "SetOutput",
+  value: { index: 0, on: true }
+}
+
+// Backend (Rust) erwartet:
+#[serde(tag = "action", content = "value")]
+enum Mutation {
+    SetOutput { index: usize, on: bool },
+    // ...
+}
+```
+
+**StateEvent-Schema (angepasst):**
+```typescript
+// Backend sendet KEIN is_default_state fuer diese Maschine
+export const stateEventDataSchema = z.object({
+  output_states: z.tuple([z.boolean(), ...]),  // 8x
+  axis_speeds: z.tuple([z.number(), z.number()]),
+});
+```
+
+**SSH-Tunnel Architektur:**
+```
+[Homeoffice]          [Tower (Windows)]              [Mini-PC (NixOS)]
+     |                       |                              |
+  Parsec ─────────────► Electron UI                         |
+                             |                              |
+                        localhost:3001                      |
+                             |                              |
+                        SSH-Tunnel ──────────────────► localhost:3001
+                                                            |
+                                                      Backend Server
+                                                            |
+                                                      EtherCAT Hardware
+```
+
+### Aktueller Stand
+- UI laeuft auf Tower (Vite dev server + Electron)
+- SSH-Tunnel verbindet zu Mini-PC Backend
+- SchneidemaschineV0 ist in der Maschinen-Liste sichtbar
+- "Taster 1" Button fuer DO0 implementiert und **erfolgreich getestet**
+
+### Test-Ergebnis (2026-01-30 ~11:35)
+- SchneidemaschineV0 Control Page laedt korrekt
+- Button "Taster 1" wird angezeigt
+- Kommunikation Frontend <-> Backend ueber SSH-Tunnel funktioniert
+
+### Weitere Fixes (2026-01-30 ~11:50)
+
+**Problem:** "Unhandled Event - Namespace can't handle" Fehlermeldungen im UI
+
+**Ursache:**
+- Backend sendet `DebugPtoEvent` das nicht behandelt wurde
+- `mainNamespace` wirft Fehler bei unbekannten Events
+
+**Loesung:**
+1. `schneidemaschineV0Namespace.ts`: DebugPtoEvent ignorieren, unbekannte Events nur loggen
+2. `mainNamespace.ts`: Unbekannte Events ignorieren statt Fehler werfen
+
+```typescript
+// Statt:
+handleUnhandledEventError(eventName);
+
+// Jetzt:
+console.warn(`Unknown event "${eventName}" ignored`);
+```
+
+### Hardware-Test (2026-01-30 ~11:55)
+
+**Test:** Button "Taster 1" mehrfach gedrueckt (AN/AUS)
+
+**Server-Logs bestaetigen Empfang:**
+```
+10:39:43 Mutating machine=1/55/21 {"action": "SetOutput", "value": {"index": 0, "on": true}}
+10:39:45 Mutating machine=1/55/21 {"action": "SetOutput", "value": {"index": 0, "on": false}}
+10:39:46 Mutating machine=1/55/21 {"action": "SetOutput", "value": {"index": 0, "on": true}}
+10:39:47 Mutating machine=1/55/21 {"action": "SetOutput", "value": {"index": 0, "on": false}}
+```
+
+**Ergebnis:**
+- Frontend -> Backend Kommunikation: **FUNKTIONIERT**
+- Mutation-Format korrekt (action/value)
+- Backend empfaengt und verarbeitet Befehle
+- EL2008 DO0 sollte schalten (LED leuchtet bei "AN") - nicht live verifizierbar (Homeoffice)
+
+### Update-Quelle geaendert (2026-01-30 ~12:10)
+
+**Aenderung:** Default GitHub-Quelle fuer Software-Updates auf eigenes Repo umgestellt.
+
+**Datei:** `electron/src/setup/GithubSourceDialog.tsx`
+
+**Vorher:**
+```typescript
+export const defaultGithubSource: GithubSource = {
+  githubRepoOwner: "qitechgmbh",
+  githubRepoName: "control",
+  githubToken: "github_pat_...",  // QiTech PAT
+};
+```
+
+**Nachher:**
+```typescript
+export const defaultGithubSource: GithubSource = {
+  githubRepoOwner: "mitgefuehlt-lang",
+  githubRepoName: "control",
+  githubToken: undefined,  // Kein Token noetig (public repo)
+};
+```
+
+**Hinweise:**
+- Das Repo `mitgefuehlt-lang/control` ist ein Fork von `qitechgmbh/control`
+- Da das Repo public ist, wird kein GitHub-Token benoetigt
+- Falls localStorage noch den alten Wert cached hat:
+  - Option 1: Im UI auf "Edit Source" klicken und manuell aendern
+  - Option 2: DevTools -> Application -> Local Storage -> `github-source-storage` loeschen
+
+### Naechste Schritte
+- [x] Achsen-Steuerung UI (axis_speeds) - erledigt 2026-02-02
+- [x] Live-Werte Anzeige (input_states, axis_positions) - erledigt 2026-02-02
+- [ ] Weitere Outputs hinzufuegen (DO1-DO7)
+- [ ] Vor-Ort-Test: LED am EL2008 pruefen
+
+---
+
+## Session 2026-02-02: Motor Control UI mit Beschleunigung und Position
+
+### Uebersicht
+Komplette Motor-Steuerung fuer SchneidemaschineV0 implementiert:
+- Geschwindigkeitsregelung mit Software-Ramping
+- Dynamische Beschleunigungseinstellung
+- Positionsfahrt mit Auto-Stop
+
+### 1. Motor Control UI Grundgeruest
+
+**Dateien:**
+- `electron/src/machines/schneidemaschine/schneidemaschine_v0/SchneidemaschineV0MotorsPage.tsx` (neu)
+- `electron/src/machines/schneidemaschine/schneidemaschine_v0/useSchneidemaschineV0.ts`
+- `electron/src/routes/routes.tsx`
+
+**Implementierung:**
+- Neue "Motors" Seite neben "Control" Seite
+- TouchButton fuer START (gruen) und STOP (rot)
+- EditValue fuer Geschwindigkeitseingabe
+
+**Problem 1: Motor reagierte nicht auf UI-Befehle**
+- Ursache: `act.rs` hatte DI1-Override der bei jedem Zyklus die Geschwindigkeit zuruecksetzte
+- Loesung: DI1-Override entfernt, UI hat volle Kontrolle
+
+**Problem 2: Falscher Achsen-Index**
+- Ursache: UI nutzte Index 0, Motor ist aber an Channel 2 (Index 1)
+- Loesung: `MOTOR_AXIS_INDEX = 1` konstante eingefuehrt
+
+### 2. Software-Ramping fuer Beschleunigung
+
+**Problem:** EL2522 Hardware-Rampe wird nur bei Initialisierung via CoE konfiguriert, nicht zur Laufzeit aenderbar.
+
+**Loesung:** Software-Ramping implementiert
+
+**Backend-Aenderungen (machines/src/schneidemaschine_v0/):**
+
+```rust
+// mod.rs - Neue Felder
+pub axis_speeds: [i32; 2],           // Aktuelle Geschwindigkeit (Hz)
+pub axis_target_speeds: [i32; 2],    // Ziel-Geschwindigkeit (Hz)
+pub axis_accelerations: [f32; 2],    // Beschleunigung (mm/s²)
+pub last_ramp_update: Instant,
+
+// Software-Ramp Funktion
+pub fn update_software_ramp(&mut self, dt_secs: f32) -> bool {
+    // Berechnet delta_hz basierend auf Beschleunigung
+    // Bewegt axis_speeds Richtung axis_target_speeds
+    // Gibt true zurueck wenn sich Geschwindigkeit geaendert hat
+}
+```
+
+```rust
+// act.rs - Ramp-Update im Loop
+let dt = now.duration_since(self.last_ramp_update).as_secs_f32();
+if dt > 0.001 {
+    let speed_changed = self.update_software_ramp(dt);
+    self.last_ramp_update = now;
+    if speed_changed {
+        self.emit_state();  // UI bekommt Live-Updates
+    }
+}
+```
+
+```rust
+// new.rs - Hardware-Rampe deaktiviert
+channel2_configuration: EL2522ChannelConfiguration {
+    ramp_function_active: false,  // Software-Ramping stattdessen
+    // ...
+}
+```
+
+**Frontend-Aenderungen:**
+- `SetAxisAcceleration` Mutation hinzugefuegt
+- EditValue fuer Beschleunigung (1-500 mm/s², Step 10)
+- Beschleunigung wird vor START angewendet
+
+### 3. Positionsfahrt
+
+**Ziel:** Motor faehrt auf eingestellte Position und stoppt automatisch
+
+**Backend-Aenderungen:**
+
+```rust
+// mod.rs - Neue Felder
+pub axis_target_positions: [u32; 2],  // Ziel-Position (Pulse)
+pub axis_position_mode: [bool; 2],    // Position-Modus aktiv?
+
+// Neue Funktion
+pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
+    // Berechnet Richtung basierend auf aktueller vs Ziel-Position
+    // Setzt target_counter_value in Hardware
+    // Aktiviert position_mode
+}
+```
+
+```rust
+// update_software_ramp - Position-Check
+if self.axis_position_mode[i] {
+    let current_pos = self.axes[i].get_position();
+    let target_pos = self.axis_target_positions[i];
+    // Prueft ob Ziel erreicht -> stoppt automatisch
+}
+```
+
+```rust
+// new.rs - Travel Distance Control aktiviert
+channel2_configuration: EL2522ChannelConfiguration {
+    travel_distance_control: true,  // Auto-Stop bei Ziel-Position
+    // ...
+}
+```
+
+**Frontend:**
+- `MoveToPosition` Mutation
+- EditValue fuer Ziel-Position (0-10000 mm)
+- "ZUR POSITION" Button (blau)
+
+### 4. UI Layout
+
+**Finale Struktur der Motors-Seite:**
+```
++------------------------------------------+
+|           Achse 1 - Motor                |
++------------------------------------------+
+| [Geschwindigkeit] [Beschleunigung] [Position] |
+|    50 mm/s          100 mm/s²        0 mm    |
++------------------------------------------+
+| [START]      [ZUR POSITION]      [STOP]  |
+| (gruen)         (blau)           (rot)   |
++------------------------------------------+
+| Aktuelle Geschw: 0 mm/s | Position: 0 mm |
++------------------------------------------+
+| Motor laeuft (pulsierend, wenn aktiv)    |
++------------------------------------------+
+```
+
+### 5. Fehler und Loesungen
+
+| Fehler | Ursache | Loesung |
+|--------|---------|---------|
+| Motor reagiert nicht | DI1-Override in act.rs | Override entfernt |
+| Falscher Motor angesteuert | Index 0 statt 1 | MOTOR_AXIS_INDEX = 1 |
+| Import-Fehler `@/lib/roundTo` | Falscher Pfad | Geaendert zu `@/lib/decimal` |
+| START/STOP disabled falsch | Pruefung auf currentSpeed statt targetSpeed | Prueft jetzt serverTargetSpeedHz |
+| Geschwindigkeit zeigt 0 waehrend Fahrt | State nur bei Mutation emittiert | emit_state() bei Ramp-Aenderung |
+| Rust Syntax Error | `as i32.max(1)` | `(... as i32).max(1)` |
+| Deployment dauert 28+ min | Unbekannte Ursache bei GitHub Actions | Abgebrochen, neuer Versuch ~3-7 min |
+
+### 6. Deployment
+
+**GitHub Actions Workflow:** `fast-deploy.yml`
+- Trigger: `gh workflow run fast-deploy.yml --ref master`
+- Status: `gh run list --workflow=fast-deploy.yml --limit=1`
+- Watch: `gh run watch <run-id> --exit-status`
+- Dauer: Normal 2-7 min, selten bis 28 min (dann abbrechen)
+
+**Direkte Verbindung fehlgeschlagen:**
+- SSH zu 192.168.178.106 mit allen Keys verweigert
+- Tailscale-Verbindung nur via GitHub Actions funktioniert
+
+### 7. Technische Details
+
+**Mechanik-Konstanten:**
+```rust
+pub const PULSES_PER_REV: u32 = 200;  // CL57T Stepper
+pub const LEAD_MM: f32 = 10.0;         // Kugelgewindespindel
+pub const PULSES_PER_MM: f32 = 20.0;   // 200/10
+```
+
+**Geschwindigkeits-Grenzen:**
+- Max: 230 mm/s (= 4600 Hz)
+- EL2522 base_frequency_1: 5000 Hz
+
+**Beschleunigungs-Grenzen:**
+- Min: 1 mm/s²
+- Max: 500 mm/s²
+- Default: 100 mm/s²
+
+### 8. Commits
+
+1. `83322fa6` - Add acceleration control for motor UI with software ramping
+2. `103ffecc` - Fix motor UI: button logic and layout
+3. `8cf13864` - Fix: emit state during software ramp so UI shows current speed
+4. `178af19f` - Fix syntax: add parentheses around cast before method call
+5. `9f942972` - Add position control and fix current speed display
+
+### 9. Offene Punkte
+
+- [ ] Hardware-Test: Positionsfahrt verifizieren
+- [ ] Hardware-Test: Beschleunigung fuehlt sich korrekt an?
+- [ ] Position-Reset Button (Nullpunkt setzen)
+- [ ] Negative Positionen / Richtungsumkehr
+- [ ] Endschalter-Integration
