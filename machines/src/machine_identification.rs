@@ -63,6 +63,8 @@ impl MachineIdentification {
             x if x == IP20_TEST_MACHINE => "ip20_test_machine".to_string(),
             x if x == ANALOG_INPUT_TEST_MACHINE => "analog_input_test_machine".to_string(),
             x if x == WAGO_AI_TEST_MACHINE => "wago_ai_test_machine".to_string(),
+            x if x == SCHNEIDEMASCHINE_V0 => "schneidemaschine_v0".to_string(),
+            x if x == BBM_AUTOMATIK_V2 => "bbm_automatik_v2".to_string(),
             _ => unreachable!("Unknown machine id"),
         }
     }
@@ -175,6 +177,7 @@ use ethercrab::MainDevice;
 use ethercrab::SubDeviceIdentity;
 
 use crate::ANALOG_INPUT_TEST_MACHINE;
+use crate::BBM_AUTOMATIK_V2;
 use crate::IP20_TEST_MACHINE;
 use crate::MACHINE_AQUAPATH_V1;
 use crate::MACHINE_BUFFER_V1;
@@ -184,6 +187,7 @@ use crate::MACHINE_LASER_V1;
 use crate::MACHINE_MOCK;
 use crate::MACHINE_WAGO_POWER_V1;
 use crate::MACHINE_WINDER_V1;
+use crate::SCHNEIDEMASCHINE_V0;
 use crate::TEST_MACHINE;
 use crate::VENDOR_QITECH;
 use crate::WAGO_AI_TEST_MACHINE;

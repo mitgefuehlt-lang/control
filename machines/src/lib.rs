@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::Instant;
 pub mod analog_input_test_machine;
 pub mod aquapath1;
+pub mod bbm_automatik_v2;
 #[cfg(not(feature = "mock-machine"))]
 pub mod buffer1;
 pub mod extruder1;
@@ -49,6 +50,7 @@ pub const IP20_TEST_MACHINE: u16 = 0x0034;
 pub const ANALOG_INPUT_TEST_MACHINE: u16 = 0x0035;
 pub const WAGO_AI_TEST_MACHINE: u16 = 0x0036;
 pub const SCHNEIDEMASCHINE_V0: u16 = 0x0037;
+pub const BBM_AUTOMATIK_V2: u16 = 0x0038;
 
 use serde_json::Value;
 use smol::lock::RwLock;

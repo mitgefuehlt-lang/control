@@ -1,4 +1,5 @@
 use crate::analog_input_test_machine::AnalogInputTestMachine;
+use crate::bbm_automatik_v2::BbmAutomatikV2;
 use crate::ip20_test_machine::IP20TestMachine;
 use crate::schneidemaschine_v0::SchneidemaschineV0;
 use crate::wago_ai_test_machine::WagoAiTestMachine;
@@ -133,6 +134,8 @@ lazy_static! {
         mc.register::<WagoAiTestMachine>(WagoAiTestMachine::MACHINE_IDENTIFICATION);
 
         mc.register::<SchneidemaschineV0>(SchneidemaschineV0::MACHINE_IDENTIFICATION);
+
+        mc.register::<BbmAutomatikV2>(BbmAutomatikV2::MACHINE_IDENTIFICATION);
 
         mc
     };

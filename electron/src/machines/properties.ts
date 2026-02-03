@@ -619,6 +619,79 @@ export const schneidemaschineV0: MachineProperties = {
   ],
 };
 
+export const bbmAutomatikV2: MachineProperties = {
+  name: "BBM Automatik",
+  version: "V2",
+  slug: "bbm_automatik_v2",
+  icon: "lu:Package",
+  machine_identification: {
+    vendor: VENDOR_QITECH,
+    machine: 0x0038,
+  },
+  device_roles: [
+    {
+      role: 0,
+      role_label: "Bus Coupler (EK1100)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x44c2c52,
+          revision: 0x120000,
+        },
+      ],
+    },
+    {
+      role: 1,
+      role_label: "Digital Input (EL1008)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x03f03052,
+          revision: 0x120000,
+        },
+      ],
+    },
+    {
+      role: 2,
+      role_label: "Digital Output (EL2008)",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x07d83052,
+          revision: 0x110000,
+        },
+        {
+          vendor_id: 0x2,
+          product_id: 0x07d83052,
+          revision: 0x120000,
+        },
+      ],
+    },
+    {
+      role: 3,
+      role_label: "PTO 1 (EL2522) - MT, Schieber",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x09da3052,
+          revision: 0x160000,
+        },
+      ],
+    },
+    {
+      role: 4,
+      role_label: "PTO 2 (EL2522) - Drücker, Bürste",
+      allowed_devices: [
+        {
+          vendor_id: 0x2,
+          product_id: 0x09da3052,
+          revision: 0x160000,
+        },
+      ],
+    },
+  ],
+};
+
 export const machineProperties: MachineProperties[] = [
   winder2,
   extruder3,
@@ -633,6 +706,7 @@ export const machineProperties: MachineProperties[] = [
   wagoAiTestMachine,
   ip20TestMachine,
   schneidemaschineV0,
+  bbmAutomatikV2,
 ];
 
 export const getMachineProperties = (

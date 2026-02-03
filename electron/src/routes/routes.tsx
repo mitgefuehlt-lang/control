@@ -74,6 +74,12 @@ import { SchneidemaschineV0Page } from "@/machines/schneidemaschine/schneidemasc
 import { SchneidemaschineV0ControlPage } from "@/machines/schneidemaschine/schneidemaschine_v0/SchneidemaschineV0ControlPage";
 import { SchneidemaschineV0MotorsPage } from "@/machines/schneidemaschine/schneidemaschine_v0/SchneidemaschineV0MotorsPage";
 
+import { BbmAutomatikV2Page } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2Page";
+import { BbmAutomatikV2MotorsPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2MotorsPage";
+import { BbmAutomatikV2TestPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2TestPage";
+import { BbmAutomatikV2AutoPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2AutoPage";
+import { BbmAutomatikV2StatusPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2StatusPage";
+
 // make a route tree like this
 // _mainNavigation/machines/winder2/$serial/control
 // _mainNavigation/configuration/a
@@ -375,6 +381,37 @@ export const schneidemaschineV0MotorsRoute = createRoute({
   component: () => <SchneidemaschineV0MotorsPage />,
 });
 
+// BBM Automatik V2 Routes
+export const bbmAutomatikV2SerialRoute = createRoute({
+  getParentRoute: () => machinesRoute,
+  path: "bbm_automatik_v2/$serial",
+  component: () => <BbmAutomatikV2Page />,
+});
+
+export const bbmAutomatikV2MotorsRoute = createRoute({
+  getParentRoute: () => bbmAutomatikV2SerialRoute,
+  path: "motors",
+  component: () => <BbmAutomatikV2MotorsPage />,
+});
+
+export const bbmAutomatikV2TestRoute = createRoute({
+  getParentRoute: () => bbmAutomatikV2SerialRoute,
+  path: "test",
+  component: () => <BbmAutomatikV2TestPage />,
+});
+
+export const bbmAutomatikV2AutoRoute = createRoute({
+  getParentRoute: () => bbmAutomatikV2SerialRoute,
+  path: "auto",
+  component: () => <BbmAutomatikV2AutoPage />,
+});
+
+export const bbmAutomatikV2StatusRoute = createRoute({
+  getParentRoute: () => bbmAutomatikV2SerialRoute,
+  path: "status",
+  component: () => <BbmAutomatikV2StatusPage />,
+});
+
 export const setupRoute = createRoute({
   getParentRoute: () => sidebarRoute,
   path: "setup",
@@ -530,6 +567,13 @@ export const rootTree = RootRoute.addChildren([
       schneidemaschineV0SerialRoute.addChildren([
         schneidemaschineV0ControlRoute,
         schneidemaschineV0MotorsRoute,
+      ]),
+
+      bbmAutomatikV2SerialRoute.addChildren([
+        bbmAutomatikV2MotorsRoute,
+        bbmAutomatikV2TestRoute,
+        bbmAutomatikV2AutoRoute,
+        bbmAutomatikV2StatusRoute,
       ]),
     ]),
   ]),
