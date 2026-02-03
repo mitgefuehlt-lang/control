@@ -132,9 +132,11 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 "[BbmAutomatikV2] EL2522 #1 configured: Ch1=MT, Ch2=Schieber"
             );
 
-            // ========== Pulse Train Outputs #2 (1x EL2522) ==========
+            // ========== Pulse Train Outputs #2 (1x EL2522) - OPTIONAL ==========
             // Channel 1: Drücker - Linear
             // Channel 2: Bürste - Rotation
+            // TODO: Später hinzufügen wenn zweite EL2522 angeschlossen ist
+            /*
             let (el2522_2, subdevice_2) = get_ethercat_device::<EL2522>(
                 hardware,
                 params,
@@ -179,13 +181,20 @@ impl MachineNewTrait for BbmAutomatikV2 {
             tracing::info!(
                 "[BbmAutomatikV2] EL2522 #2 configured: Ch1=Drücker, Ch2=Bürste"
             );
+            */
+
+            tracing::info!(
+                "[BbmAutomatikV2] Using only EL2522 #1 (2 axes). Second EL2522 not connected."
+            );
 
             // Create PulseTrainOutput array for 4 axes
+            // Note: Axes 2+3 (Drücker, Bürste) reuse EL2522 #1 channels as placeholders
+            // TODO: Wenn zweite EL2522 da ist, el2522_2 statt el2522_1 für Achsen 2+3 verwenden
             let axes = [
                 PulseTrainOutput::new(el2522_1.clone(), EL2522Port::PTO1), // MT
                 PulseTrainOutput::new(el2522_1.clone(), EL2522Port::PTO2), // Schieber
-                PulseTrainOutput::new(el2522_2.clone(), EL2522Port::PTO1), // Drücker
-                PulseTrainOutput::new(el2522_2.clone(), EL2522Port::PTO2), // Bürste
+                PulseTrainOutput::new(el2522_1.clone(), EL2522Port::PTO1), // Drücker (placeholder)
+                PulseTrainOutput::new(el2522_1.clone(), EL2522Port::PTO2), // Bürste (placeholder)
             ];
 
             let (sender, receiver) = smol::channel::unbounded();
