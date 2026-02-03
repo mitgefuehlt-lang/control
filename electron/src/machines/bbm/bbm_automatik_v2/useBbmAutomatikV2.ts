@@ -14,7 +14,7 @@ import { produce } from "immer";
 
 // Motor constants
 const PULSES_PER_MM = 20;
-const MAX_SPEED_MM_S = 230;
+const MAX_SPEED_MM_S = 250;
 const DEFAULT_ACCELERATION_MM_S2 = 100;
 const MAX_ACCELERATION_MM_S2 = 500;
 const MIN_ACCELERATION_MM_S2 = 1;

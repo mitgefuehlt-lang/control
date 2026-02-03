@@ -254,24 +254,22 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             onClick={handleHoming}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
-            className="h-12 px-4 bg-yellow-500 hover:bg-yellow-600 text-black"
+            className="flex-1 h-12 bg-yellow-500 hover:bg-yellow-600 text-black"
           >
-            HOME
+            HOMING
           </TouchButton>
         </div>
 
-        {/* Current Status */}
-        <div className="grid grid-cols-2 gap-4 pt-3 border-t">
-          <Label label="Aktuelle Geschwindigkeit">
-            <div className="font-mono text-xl">
-              {roundToDecimals(currentSpeed, 1)} mm/s
-            </div>
-          </Label>
-          <Label label="Position">
-            <div className="font-mono text-xl">
-              {roundToDecimals(currentPosition, 1)} mm
-            </div>
-          </Label>
+        {/* Current Status - compact */}
+        <div className="flex gap-6 pt-3 border-t text-sm">
+          <div>
+            <span className="text-muted-foreground">Geschw: </span>
+            <span className="font-mono">{roundToDecimals(currentSpeed, 1)} mm/s</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Pos: </span>
+            <span className="font-mono">{roundToDecimals(currentPosition, 1)} mm</span>
+          </div>
         </div>
 
         {isMotorCommanded && (
