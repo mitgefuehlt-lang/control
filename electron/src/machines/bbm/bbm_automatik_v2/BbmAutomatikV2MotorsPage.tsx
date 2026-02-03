@@ -23,7 +23,6 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     stopAxis,
     getAxisSpeedMmS,
     getAxisPositionMm,
-    getAxisAcceleration,
     isDisabled,
     isLoading,
     MAX_SPEED_MM_S,
@@ -35,6 +34,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   const [inputSpeed, setInputSpeed] = useState<number>(50);
   const [inputAcceleration, setInputAcceleration] = useState<number>(100);
   const [inputPosition, setInputPosition] = useState<number>(0);
+  const [inputStepSize, setInputStepSize] = useState<number>(10);
 
   // Get actual values from server state
   const currentSpeed = getAxisSpeedMmS(axisIndex) ?? 0;
@@ -52,12 +52,9 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     }
   };
 
-  // Start motor backward
-  const handleStartBackward = () => {
-    if (inputSpeed > 0) {
-      setAxisAcceleration(axisIndex, inputAcceleration);
-      setAxisSpeedMmS(axisIndex, -inputSpeed);
-    }
+  // Stop motor
+  const handleStop = () => {
+    stopAxis(axisIndex);
   };
 
   // Move to target position
@@ -66,9 +63,24 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     moveToPosition(axisIndex, inputPosition, inputSpeed);
   };
 
-  // Stop motor
-  const handleStop = () => {
-    stopAxis(axisIndex);
+  // Jog positive (move by step size)
+  const handleJogPlus = () => {
+    const targetPos = currentPosition + inputStepSize;
+    setAxisAcceleration(axisIndex, inputAcceleration);
+    moveToPosition(axisIndex, targetPos, inputSpeed);
+  };
+
+  // Jog negative (move by step size)
+  const handleJogMinus = () => {
+    const targetPos = Math.max(0, currentPosition - inputStepSize);
+    setAxisAcceleration(axisIndex, inputAcceleration);
+    moveToPosition(axisIndex, targetPos, inputSpeed);
+  };
+
+  // Homing (move to 0)
+  const handleHoming = () => {
+    setAxisAcceleration(axisIndex, inputAcceleration);
+    moveToPosition(axisIndex, 0, inputSpeed);
   };
 
   if (isRotation) {
@@ -108,7 +120,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               onClick={handleStop}
               disabled={isDisabled || !isMotorCommanded}
               isLoading={isLoading}
-              className="flex-1 h-12"
+              className={`flex-1 h-12 ${!isMotorCommanded && !isDisabled ? "bg-gray-400 hover:bg-gray-400 border-gray-400" : ""}`}
             >
               STOP
             </TouchButton>
@@ -124,97 +136,139 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     );
   }
 
-  // Full UI for linear axes
+  // Full UI for linear axes - two column layout
   return (
     <ControlCard title={`${axisName} (Linear)`}>
       <div className="flex flex-col gap-4">
-        {/* Speed, Acceleration, Position Inputs */}
-        <div className="grid grid-cols-3 gap-4">
-          <Label label="Geschwindigkeit">
-            <EditValue
-              value={inputSpeed}
-              title="Geschwindigkeit"
-              min={1}
-              max={MAX_SPEED_MM_S}
-              step={1}
-              renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
-              onChange={(speed) => setInputSpeed(speed)}
-            />
-          </Label>
+        {/* Two column layout */}
+        <div className="grid grid-cols-2 gap-6">
+          {/* LEFT COLUMN: Speed/Acceleration/Start/Stop */}
+          <div className="flex flex-col gap-4">
+            <Label label="Geschwindigkeit">
+              <EditValue
+                value={inputSpeed}
+                title="Geschwindigkeit"
+                min={1}
+                max={MAX_SPEED_MM_S}
+                step={1}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
+                onChange={(speed) => setInputSpeed(speed)}
+              />
+            </Label>
 
-          <Label label="Beschleunigung">
-            <EditValue
-              value={inputAcceleration}
-              title="Beschleunigung"
-              min={MIN_ACCELERATION_MM_S2}
-              max={MAX_ACCELERATION_MM_S2}
-              step={10}
-              renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
-              onChange={(accel) => setInputAcceleration(accel)}
-            />
-          </Label>
+            <Label label="Beschleunigung">
+              <EditValue
+                value={inputAcceleration}
+                title="Beschleunigung"
+                min={MIN_ACCELERATION_MM_S2}
+                max={MAX_ACCELERATION_MM_S2}
+                step={10}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
+                onChange={(accel) => setInputAcceleration(accel)}
+              />
+            </Label>
 
-          <Label label="Ziel-Position">
-            <EditValue
-              value={inputPosition}
-              title="Ziel-Position"
-              min={0}
-              max={10000}
-              step={10}
-              renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
-              onChange={(pos) => setInputPosition(pos)}
-            />
-          </Label>
-        </div>
+            <div className="flex gap-2 mt-2">
+              <TouchButton
+                variant="default"
+                icon="lu:Play"
+                onClick={handleStart}
+                disabled={isDisabled || isMotorCommanded}
+                isLoading={isLoading}
+                className="flex-1 h-12 bg-green-600 hover:bg-green-700"
+              >
+                START
+              </TouchButton>
 
-        {/* Control Buttons */}
-        <div className="flex gap-2">
-          <TouchButton
-            variant="default"
-            icon="lu:Play"
-            onClick={handleStart}
-            disabled={isDisabled || isMotorCommanded}
-            isLoading={isLoading}
-            className="flex-1 h-12 bg-green-600 hover:bg-green-700"
-          >
-            START
-          </TouchButton>
+              <TouchButton
+                variant="destructive"
+                icon="lu:Square"
+                onClick={handleStop}
+                disabled={isDisabled || !isMotorCommanded}
+                isLoading={isLoading}
+                className={`flex-1 h-12 ${!isMotorCommanded && !isDisabled ? "bg-gray-400 hover:bg-gray-400 border-gray-400 text-gray-600" : ""}`}
+              >
+                STOP
+              </TouchButton>
+            </div>
+          </div>
 
-          <TouchButton
-            variant="default"
-            icon="lu:MapPin"
-            onClick={handleMoveToPosition}
-            disabled={isDisabled || isMotorCommanded}
-            isLoading={isLoading}
-            className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
-          >
-            ZUR POSITION
-          </TouchButton>
+          {/* RIGHT COLUMN: Position/Step/Jog/Homing */}
+          <div className="flex flex-col gap-4">
+            <Label label="Sollposition">
+              <EditValue
+                value={inputPosition}
+                title="Sollposition"
+                min={0}
+                max={10000}
+                step={10}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
+                onChange={(pos) => setInputPosition(pos)}
+              />
+            </Label>
 
-          <TouchButton
-            variant="destructive"
-            icon="lu:Square"
-            onClick={handleStop}
-            disabled={isDisabled || !isMotorCommanded}
-            isLoading={isLoading}
-            className="flex-1 h-12"
-          >
-            STOP
-          </TouchButton>
+            <Label label="Schrittweite">
+              <EditValue
+                value={inputStepSize}
+                title="Schrittweite"
+                min={1}
+                max={1000}
+                step={1}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
+                onChange={(step) => setInputStepSize(step)}
+              />
+            </Label>
 
-          <TouchButton
-            variant="outline"
-            icon="lu:Home"
-            onClick={() => {}}
-            disabled={true}
-            className="h-12"
-          >
-            HOME
-          </TouchButton>
+            <div className="flex gap-2 mt-2">
+              <TouchButton
+                variant="default"
+                icon="lu:MapPin"
+                onClick={handleMoveToPosition}
+                disabled={isDisabled || isMotorCommanded}
+                isLoading={isLoading}
+                className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
+              >
+                POS
+              </TouchButton>
+
+              <TouchButton
+                variant="outline"
+                icon="lu:Minus"
+                onClick={handleJogMinus}
+                disabled={isDisabled || isMotorCommanded}
+                isLoading={isLoading}
+                className="h-12 px-4"
+              >
+                JOG-
+              </TouchButton>
+
+              <TouchButton
+                variant="outline"
+                icon="lu:Plus"
+                onClick={handleJogPlus}
+                disabled={isDisabled || isMotorCommanded}
+                isLoading={isLoading}
+                className="h-12 px-4"
+              >
+                JOG+
+              </TouchButton>
+
+              <TouchButton
+                variant="default"
+                icon="lu:Home"
+                onClick={handleHoming}
+                disabled={isDisabled || isMotorCommanded}
+                isLoading={isLoading}
+                className="h-12 px-4 bg-yellow-500 hover:bg-yellow-600 text-black"
+              >
+                HOME
+              </TouchButton>
+            </div>
+          </div>
         </div>
 
         {/* Current Status */}
-        <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+        <div className="grid grid-cols-2 gap-4 pt-3 border-t">
           <Label label="Aktuelle Geschwindigkeit">
             <div className="font-mono text-xl">
               {roundToDecimals(currentSpeed, 1)} mm/s

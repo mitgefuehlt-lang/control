@@ -9,10 +9,10 @@ export function BbmAutomatikV2Page() {
       pathname={`/_sidebar/machines/bbm_automatik_v2/${serial}`}
       items={[
         {
-          link: "motors",
-          activeLink: "motors",
-          title: "Motoren",
-          icon: "lu:Cog",
+          link: "auto",
+          activeLink: "auto",
+          title: "Auto",
+          icon: "lu:Play",
         },
         {
           link: "test",
@@ -21,10 +21,10 @@ export function BbmAutomatikV2Page() {
           icon: "lu:FlaskConical",
         },
         {
-          link: "auto",
-          activeLink: "auto",
-          title: "Automatik",
-          icon: "lu:Play",
+          link: "motors",
+          activeLink: "motors",
+          title: "Motoren",
+          icon: "lu:Cog",
         },
         {
           link: "status",

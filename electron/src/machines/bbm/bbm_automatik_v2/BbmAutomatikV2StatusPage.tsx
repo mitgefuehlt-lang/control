@@ -2,29 +2,56 @@ import { ControlCard } from "@/control/ControlCard";
 import { Page } from "@/components/Page";
 import { ControlGrid } from "@/control/ControlGrid";
 import { useBbmAutomatikV2, AXIS_NAMES } from "./useBbmAutomatikV2";
-import { TouchButton } from "@/components/touch/TouchButton";
 import { roundToDecimals } from "@/lib/decimal";
+import { useEffect, useState } from "react";
+
+interface LogEntry {
+  timestamp: Date;
+  message: string;
+  type: "info" | "warning" | "error" | "success";
+}
 
 export function BbmAutomatikV2StatusPage() {
   const {
     state,
     liveValues,
-    setAmpel,
     getAxisPositionMm,
     getAxisSpeedMmS,
-    isDisabled,
-    isLoading,
     INPUT,
-    OUTPUT,
   } = useBbmAutomatikV2();
 
-  // Ampel state
-  const ampelRot = state?.output_states[OUTPUT.AMPEL_ROT] ?? false;
-  const ampelGelb = state?.output_states[OUTPUT.AMPEL_GELB] ?? false;
-  const ampelGruen = state?.output_states[OUTPUT.AMPEL_GRUEN] ?? false;
+  // Log entries state
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([
+    { timestamp: new Date(), message: "Status-Seite geladen", type: "info" },
+  ]);
 
-  // Rüttelmotor
-  const ruettelmotorOn = state?.output_states[OUTPUT.RUETTELMOTOR] ?? false;
+  // Add log entry helper
+  const addLogEntry = (message: string, type: LogEntry["type"] = "info") => {
+    setLogEntries((prev) => [
+      { timestamp: new Date(), message, type },
+      ...prev.slice(0, 99), // Keep last 100 entries
+    ]);
+  };
+
+  // Monitor input changes and log them
+  useEffect(() => {
+    if (!liveValues) return;
+
+    const inputNames = [
+      "Referenz MT",
+      "Referenz Schieber",
+      "Referenz Drücker",
+      "Tür 1",
+      "Tür 2",
+    ];
+
+    // Log door sensor changes
+    const tuer1 = liveValues.input_states[INPUT.TUER_1];
+    const tuer2 = liveValues.input_states[INPUT.TUER_2];
+
+    // This will be called on every render, so we need to track previous state
+    // For now, just show current state in the log on mount
+  }, [liveValues, INPUT]);
 
   // Sensor names
   const inputNames = [
@@ -38,99 +65,55 @@ export function BbmAutomatikV2StatusPage() {
     "DI 8 (frei)",
   ];
 
+  // Format timestamp
+  const formatTimestamp = (date: Date) => {
+    return date.toLocaleString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
+
+  // Get log entry color based on type
+  const getLogEntryColor = (type: LogEntry["type"]) => {
+    switch (type) {
+      case "error":
+        return "text-red-600";
+      case "warning":
+        return "text-yellow-600";
+      case "success":
+        return "text-green-600";
+      default:
+        return "text-gray-600";
+    }
+  };
+
   return (
     <Page>
       <ControlGrid columns={2}>
-        {/* Ampel Control */}
-        <ControlCard title="Ampel">
-          <div className="flex flex-col gap-4">
-            <div className="flex gap-4 justify-center">
-              {/* Ampel visualization */}
-              <div className="flex flex-col gap-2 p-4 bg-gray-800 rounded-lg">
-                <div
-                  className={`w-12 h-12 rounded-full ${
-                    ampelRot ? "bg-red-500 shadow-lg shadow-red-500/50" : "bg-red-900"
-                  }`}
-                />
-                <div
-                  className={`w-12 h-12 rounded-full ${
-                    ampelGelb ? "bg-yellow-500 shadow-lg shadow-yellow-500/50" : "bg-yellow-900"
-                  }`}
-                />
-                <div
-                  className={`w-12 h-12 rounded-full ${
-                    ampelGruen ? "bg-green-500 shadow-lg shadow-green-500/50" : "bg-green-900"
-                  }`}
-                />
+        {/* Meldungs-Log */}
+        <ControlCard title="Meldungen" className="col-span-2">
+          <div className="h-64 overflow-y-auto bg-gray-50 rounded p-2 font-mono text-sm">
+            {logEntries.length === 0 ? (
+              <div className="text-gray-400 text-center py-4">
+                Keine Meldungen
               </div>
-            </div>
-
-            {/* Ampel buttons */}
-            <div className="flex gap-2">
-              <TouchButton
-                variant={ampelRot ? "default" : "outline"}
-                onClick={() => setAmpel(!ampelRot, ampelGelb, ampelGruen)}
-                disabled={isDisabled}
-                isLoading={isLoading}
-                className={`flex-1 h-10 ${ampelRot ? "bg-red-600 hover:bg-red-700" : ""}`}
-              >
-                Rot
-              </TouchButton>
-              <TouchButton
-                variant={ampelGelb ? "default" : "outline"}
-                onClick={() => setAmpel(ampelRot, !ampelGelb, ampelGruen)}
-                disabled={isDisabled}
-                isLoading={isLoading}
-                className={`flex-1 h-10 ${ampelGelb ? "bg-yellow-600 hover:bg-yellow-700" : ""}`}
-              >
-                Gelb
-              </TouchButton>
-              <TouchButton
-                variant={ampelGruen ? "default" : "outline"}
-                onClick={() => setAmpel(ampelRot, ampelGelb, !ampelGruen)}
-                disabled={isDisabled}
-                isLoading={isLoading}
-                className={`flex-1 h-10 ${ampelGruen ? "bg-green-600 hover:bg-green-700" : ""}`}
-              >
-                Grün
-              </TouchButton>
-            </div>
-
-            {/* Quick presets */}
-            <div className="flex gap-2 pt-2 border-t">
-              <TouchButton
-                variant="outline"
-                onClick={() => setAmpel(false, false, true)}
-                disabled={isDisabled}
-                className="flex-1 h-8 text-sm"
-              >
-                Bereit
-              </TouchButton>
-              <TouchButton
-                variant="outline"
-                onClick={() => setAmpel(false, true, false)}
-                disabled={isDisabled}
-                className="flex-1 h-8 text-sm"
-              >
-                Läuft
-              </TouchButton>
-              <TouchButton
-                variant="outline"
-                onClick={() => setAmpel(true, false, false)}
-                disabled={isDisabled}
-                className="flex-1 h-8 text-sm"
-              >
-                Fehler
-              </TouchButton>
-              <TouchButton
-                variant="outline"
-                onClick={() => setAmpel(false, false, false)}
-                disabled={isDisabled}
-                className="flex-1 h-8 text-sm"
-              >
-                Aus
-              </TouchButton>
-            </div>
+            ) : (
+              logEntries.map((entry, index) => (
+                <div
+                  key={index}
+                  className={`flex gap-2 py-1 border-b border-gray-100 last:border-0 ${getLogEntryColor(entry.type)}`}
+                >
+                  <span className="text-gray-400 shrink-0">
+                    {formatTimestamp(entry.timestamp)}
+                  </span>
+                  <span>{entry.message}</span>
+                </div>
+              ))
+            )}
           </div>
         </ControlCard>
 
@@ -181,8 +164,8 @@ export function BbmAutomatikV2StatusPage() {
         </ControlCard>
 
         {/* Ausgänge Status */}
-        <ControlCard title="Digitale Ausgänge">
-          <div className="grid grid-cols-2 gap-2">
+        <ControlCard title="Digitale Ausgänge" className="col-span-2">
+          <div className="grid grid-cols-4 gap-2">
             {[
               "Rüttelmotor",
               "Ampel Rot",
