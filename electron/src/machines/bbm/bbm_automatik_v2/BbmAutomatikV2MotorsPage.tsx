@@ -30,9 +30,9 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     MIN_ACCELERATION_MM_S2,
   } = useBbmAutomatikV2();
 
-  // Local state for inputs
-  const [inputSpeed, setInputSpeed] = useState<number>(50);
-  const [inputAcceleration, setInputAcceleration] = useState<number>(100);
+  // Local state for inputs (defaults: speed 10, accel 50)
+  const [inputSpeed, setInputSpeed] = useState<number>(10);
+  const [inputAcceleration, setInputAcceleration] = useState<number>(50);
   const [inputPosition, setInputPosition] = useState<number>(0);
   const [inputStepSize, setInputStepSize] = useState<number>(10);
 
