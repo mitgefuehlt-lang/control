@@ -86,6 +86,22 @@ impl<'device> PulseTrainOutput {
     pub fn set_output(&self, output: PulseTrainOutputOutput) {
         (self.set_output)(output);
     }
+
+    /// Reset the position counter to 0
+    /// This sets the counter value to 0 using the set_counter mechanism
+    pub fn reset_position(&self) {
+        let mut output = (self.get_output)();
+        output.set_counter = true;
+        output.set_counter_value = 0;
+        (self.set_output)(output);
+    }
+
+    /// Clear the set_counter flag after reset is done
+    pub fn clear_set_counter(&self) {
+        let mut output = (self.get_output)();
+        output.set_counter = false;
+        (self.set_output)(output);
+    }
 }
 
 #[derive(Debug, Clone)]

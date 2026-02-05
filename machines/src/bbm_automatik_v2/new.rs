@@ -208,6 +208,13 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 axis_target_positions: [0; 4],
                 axis_position_mode: [false; 4],
                 last_ramp_update: Instant::now(),
+                axis_homing_phase: [
+                    crate::bbm_automatik_v2::HomingPhase::Idle,
+                    crate::bbm_automatik_v2::HomingPhase::Idle,
+                    crate::bbm_automatik_v2::HomingPhase::Idle,
+                    crate::bbm_automatik_v2::HomingPhase::Idle,
+                ],
+                axis_homing_retract_target: [0; 4],
             };
 
             machine.emit_state();

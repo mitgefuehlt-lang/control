@@ -58,6 +58,9 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     setAxisAcceleration,
     moveToPosition,
     stopAxis,
+    startHoming,
+    cancelHoming,
+    isAxisHoming,
     getAxisSpeedMmS,
     getAxisSpeedRpm,
     getAxisPositionMm,
@@ -140,10 +143,18 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     moveToPosition(axisIndex, targetPos, inputSpeed);
   };
 
+  // Homing state
+  const isHoming = isAxisHoming(axisIndex);
+
   const handleHoming = () => {
     setError(null);
-    setAxisAcceleration(axisIndex, inputAcceleration);
-    moveToPosition(axisIndex, 0, inputSpeed);
+    if (isHoming) {
+      // Cancel homing if already running
+      cancelHoming(axisIndex);
+    } else {
+      // Start homing
+      startHoming(axisIndex);
+    }
   };
 
   if (isRotation) {
@@ -376,14 +387,14 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
           </TouchButton>
 
           <TouchButton
-            variant="default"
-            icon="lu:House"
+            variant={isHoming ? "destructive" : "default"}
+            icon={isHoming ? "lu:Square" : "lu:House"}
             onClick={handleHoming}
-            disabled={isDisabled || isMotorCommanded}
+            disabled={isDisabled || (isMotorCommanded && !isHoming)}
             isLoading={isLoading}
-            className="flex-1 h-12 bg-amber-500 hover:bg-amber-600 text-black"
+            className={`flex-1 h-12 ${isHoming ? "animate-pulse" : "bg-amber-500 hover:bg-amber-600 text-black"}`}
           >
-            HOME
+            {isHoming ? "STOP" : "HOME"}
           </TouchButton>
         </div>
 
@@ -391,6 +402,13 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
         {error && (
           <div className="text-center text-red-600 font-semibold">
             {error}
+          </div>
+        )}
+
+        {/* Homing status */}
+        {isHoming && (
+          <div className="text-center text-amber-600 font-semibold animate-pulse">
+            Referenzfahrt läuft...
           </div>
         )}
 

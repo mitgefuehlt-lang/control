@@ -35,11 +35,11 @@ pub mod axes {
 
 /// Digital input indices
 pub mod inputs {
-    pub const REF_MT: usize = 0;        // Referenzschalter MT
-    pub const REF_SCHIEBER: usize = 1;  // Referenzschalter Schieber
-    pub const REF_DRUECKER: usize = 2;  // Referenzschalter Drücker
-    pub const TUER_1: usize = 3;        // Türsensor 1
-    pub const TUER_2: usize = 4;        // Türsensor 2
+    pub const REF_MT: usize = 1;        // Referenzschalter Transporter (DI1)
+    pub const REF_SCHIEBER: usize = 2;  // Referenzschalter Schieber (DI2)
+    pub const REF_DRUECKER: usize = 3;  // Referenzschalter Drücker (DI3)
+    pub const TUER_1: usize = 4;        // Türsensor 1 (DI4)
+    pub const TUER_2: usize = 5;        // Türsensor 2 (DI5)
 }
 
 /// Digital output indices
@@ -48,6 +48,27 @@ pub mod outputs {
     pub const AMPEL_ROT: usize = 1;     // Ampel Rot
     pub const AMPEL_GELB: usize = 2;    // Ampel Gelb
     pub const AMPEL_GRUEN: usize = 3;   // Ampel Grün
+}
+
+/// Homing configuration
+pub mod homing {
+    /// Homing speed in mm/s (slow for precision)
+    pub const HOMING_SPEED_MM_S: f32 = 15.0;
+    /// Retract distance after hitting sensor (mm)
+    pub const RETRACT_DISTANCE_MM: f32 = 2.0;
+}
+
+/// Homing phases
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HomingPhase {
+    /// Not homing
+    Idle,
+    /// Phase 1: Moving negative until sensor triggers
+    SearchingSensor,
+    /// Phase 2: Retracting 2mm away from sensor
+    Retracting,
+    /// Phase 3: Setting position to 0
+    SettingZero,
 }
 
 /// Mechanical constants for the linear axes
@@ -114,6 +135,10 @@ pub struct BbmAutomatikV2 {
     pub axis_target_positions: [u32; 4], // Target position in pulses for position mode
     pub axis_position_mode: [bool; 4],   // True if axis is in position mode (auto-stop at target)
     pub last_ramp_update: Instant,       // For software ramp timing
+
+    // Homing state
+    pub axis_homing_phase: [HomingPhase; 4],      // Current homing phase per axis
+    pub axis_homing_retract_target: [u32; 4],     // Target position for retract phase (pulses)
 }
 
 impl Machine for BbmAutomatikV2 {
@@ -134,6 +159,14 @@ impl BbmAutomatikV2 {
 
     /// Get current state for UI
     pub fn get_state(&self) -> StateEvent {
+        // Convert homing phase to bool for UI (true = any homing phase active)
+        let homing_active = [
+            self.axis_homing_phase[0] != HomingPhase::Idle,
+            self.axis_homing_phase[1] != HomingPhase::Idle,
+            self.axis_homing_phase[2] != HomingPhase::Idle,
+            self.axis_homing_phase[3] != HomingPhase::Idle,
+        ];
+
         StateEvent {
             output_states: self.output_states,
             axis_speeds: self.axis_speeds,
@@ -141,6 +174,7 @@ impl BbmAutomatikV2 {
             axis_accelerations: self.axis_accelerations,
             axis_target_positions: self.axis_target_positions,
             axis_position_mode: self.axis_position_mode,
+            axis_homing_active: homing_active,
         }
     }
 
@@ -403,6 +437,129 @@ impl BbmAutomatikV2 {
             axes::SCHIEBER => self.digital_inputs[inputs::REF_SCHIEBER].get_value().unwrap_or(false),
             axes::DRUECKER => self.digital_inputs[inputs::REF_DRUECKER].get_value().unwrap_or(false),
             _ => false, // Bürste has no home switch
+        }
+    }
+
+    // ============ Homing Functions ============
+
+    /// Start homing sequence for an axis
+    /// Sequence: 1) Move negative until sensor, 2) Retract 2mm, 3) Set position to 0
+    pub fn start_homing(&mut self, index: usize) {
+        if index >= self.axes.len() || index == axes::BUERSTE {
+            tracing::warn!("[BbmAutomatikV2] Cannot home axis {} (invalid or rotation axis)", index);
+            return;
+        }
+
+        // If already homing, ignore
+        if self.axis_homing_phase[index] != HomingPhase::Idle {
+            tracing::warn!("[BbmAutomatikV2] Axis {} already homing", index);
+            return;
+        }
+
+        // Start Phase 1: Search for sensor (move negative)
+        self.axis_homing_phase[index] = HomingPhase::SearchingSensor;
+        self.axis_position_mode[index] = false;
+
+        // Set slow homing speed in negative direction
+        let homing_hz = -mechanics::mm_per_s_to_hz(homing::HOMING_SPEED_MM_S);
+        self.axis_target_speeds[index] = homing_hz;
+
+        self.emit_state();
+        tracing::info!(
+            "[BbmAutomatikV2] Axis {} homing Phase 1: Searching sensor at {} Hz ({:.1} mm/s)",
+            index,
+            homing_hz,
+            homing::HOMING_SPEED_MM_S
+        );
+    }
+
+    /// Cancel homing for an axis
+    pub fn cancel_homing(&mut self, index: usize) {
+        if index < self.axes.len() && self.axis_homing_phase[index] != HomingPhase::Idle {
+            self.axis_homing_phase[index] = HomingPhase::Idle;
+            self.stop_axis(index);
+            tracing::info!("[BbmAutomatikV2] Axis {} homing cancelled", index);
+        }
+    }
+
+    /// Update homing state machine
+    /// Called from act() loop
+    pub fn update_homing(&mut self) {
+        for i in 0..self.axes.len() {
+            match self.axis_homing_phase[i] {
+                HomingPhase::Idle => continue,
+
+                HomingPhase::SearchingSensor => {
+                    // Check if reference switch is triggered
+                    if self.is_axis_homed(i) {
+                        // Stop the axis
+                        self.axis_speeds[i] = 0;
+                        self.axis_target_speeds[i] = 0;
+                        self.axes[i].set_frequency(0);
+
+                        // Calculate retract target: current position + 2mm
+                        let current_pos = self.axes[i].get_position();
+                        let retract_pulses = (homing::RETRACT_DISTANCE_MM * mechanics::PULSES_PER_MM) as u32;
+                        self.axis_homing_retract_target[i] = current_pos + retract_pulses;
+
+                        // Start Phase 2: Retract
+                        self.axis_homing_phase[i] = HomingPhase::Retracting;
+
+                        // Move positive (away from sensor)
+                        let retract_hz = mechanics::mm_per_s_to_hz(homing::HOMING_SPEED_MM_S);
+                        self.axis_target_speeds[i] = retract_hz;
+
+                        tracing::info!(
+                            "[BbmAutomatikV2] Axis {} homing Phase 2: Retracting {:.1}mm (target: {} pulses)",
+                            i,
+                            homing::RETRACT_DISTANCE_MM,
+                            self.axis_homing_retract_target[i]
+                        );
+                        self.emit_state();
+                    }
+                }
+
+                HomingPhase::Retracting => {
+                    // Check if we reached the retract target
+                    let current_pos = self.axes[i].get_position();
+                    if current_pos >= self.axis_homing_retract_target[i] {
+                        // Stop the axis
+                        self.axis_speeds[i] = 0;
+                        self.axis_target_speeds[i] = 0;
+                        self.axes[i].set_frequency(0);
+
+                        // Start Phase 3: Set zero
+                        self.axis_homing_phase[i] = HomingPhase::SettingZero;
+
+                        // Reset position counter to 0
+                        self.axes[i].reset_position();
+
+                        tracing::info!(
+                            "[BbmAutomatikV2] Axis {} homing Phase 3: Setting position to 0",
+                            i
+                        );
+                        self.emit_state();
+                    }
+                }
+
+                HomingPhase::SettingZero => {
+                    // Check if set_counter is done (wait one cycle)
+                    let input = self.axes[i].get_input();
+                    if input.set_counter_done || input.counter_value == 0 {
+                        // Clear the set_counter flag
+                        self.axes[i].clear_set_counter();
+
+                        // Homing complete!
+                        self.axis_homing_phase[i] = HomingPhase::Idle;
+
+                        tracing::info!(
+                            "[BbmAutomatikV2] Axis {} homing COMPLETE - position is now 0",
+                            i
+                        );
+                        self.emit_state();
+                    }
+                }
+            }
         }
     }
 }

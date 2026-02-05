@@ -25,6 +25,9 @@ impl MachineAct for BbmAutomatikV2 {
             }
         }
 
+        // Check homing status (reference switches)
+        self.update_homing();
+
         // Emit state and live values at ~30 Hz
         if now.duration_since(self.last_state_emit) > Duration::from_secs_f64(1.0 / 30.0) {
             self.emit_live_values();

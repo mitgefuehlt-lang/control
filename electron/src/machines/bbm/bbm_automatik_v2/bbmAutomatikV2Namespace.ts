@@ -38,6 +38,7 @@ export const stateEventDataSchema = z.object({
   axis_accelerations: z.tuple([z.number(), z.number(), z.number(), z.number()]),
   axis_target_positions: z.tuple([z.number(), z.number(), z.number(), z.number()]),
   axis_position_mode: z.tuple([z.boolean(), z.boolean(), z.boolean(), z.boolean()]),
+  axis_homing_active: z.tuple([z.boolean(), z.boolean(), z.boolean(), z.boolean()]),
 });
 
 /**

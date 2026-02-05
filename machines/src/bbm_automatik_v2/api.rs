@@ -19,6 +19,7 @@ pub struct StateEvent {
     pub axis_accelerations: [f32; 4],
     pub axis_target_positions: [u32; 4],
     pub axis_position_mode: [bool; 4],
+    pub axis_homing_active: [bool; 4],
 }
 
 impl StateEvent {
@@ -72,6 +73,10 @@ pub enum Mutation {
     SetRuettelmotor { on: bool },
     /// Set Ampel (traffic light) state
     SetAmpel { rot: bool, gelb: bool, gruen: bool },
+    /// Start homing sequence for an axis
+    StartHoming { index: usize },
+    /// Cancel homing for an axis
+    CancelHoming { index: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +134,8 @@ impl MachineApi for BbmAutomatikV2 {
             Mutation::StopAllAxes => self.stop_all_axes(),
             Mutation::SetRuettelmotor { on } => self.set_ruettelmotor(on),
             Mutation::SetAmpel { rot, gelb, gruen } => self.set_ampel(rot, gelb, gruen),
+            Mutation::StartHoming { index } => self.start_homing(index),
+            Mutation::CancelHoming { index } => self.cancel_homing(index),
         }
         Ok(())
     }

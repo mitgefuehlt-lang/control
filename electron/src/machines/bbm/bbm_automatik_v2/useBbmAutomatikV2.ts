@@ -328,6 +328,55 @@ function useBbmAutomatik(
     );
   };
 
+  // StartHoming mutation
+  const startHomingSchema = z.object({
+    action: z.literal("StartHoming"),
+    value: z.object({
+      index: z.number(),
+    }),
+  });
+  const { request: requestStartHoming } = useMachineMutation(startHomingSchema);
+
+  const startHoming = (index: number) => {
+    updateStateOptimistically(
+      (current) => {
+        current.data.axis_homing_active[index] = true;
+      },
+      () =>
+        requestStartHoming({
+          machine_identification_unique,
+          data: { action: "StartHoming", value: { index } },
+        }),
+    );
+  };
+
+  // CancelHoming mutation
+  const cancelHomingSchema = z.object({
+    action: z.literal("CancelHoming"),
+    value: z.object({
+      index: z.number(),
+    }),
+  });
+  const { request: requestCancelHoming } = useMachineMutation(cancelHomingSchema);
+
+  const cancelHoming = (index: number) => {
+    updateStateOptimistically(
+      (current) => {
+        current.data.axis_homing_active[index] = false;
+      },
+      () =>
+        requestCancelHoming({
+          machine_identification_unique,
+          data: { action: "CancelHoming", value: { index } },
+        }),
+    );
+  };
+
+  // Helper to check if axis is homing
+  const isAxisHoming = (index: number): boolean => {
+    return stateOptimistic.value?.data.axis_homing_active[index] ?? false;
+  };
+
   // Helper to get axis speed in mm/s (for linear axes)
   const getAxisSpeedMmS = (index: number): number | undefined => {
     const speedHz = stateOptimistic.value?.data.axis_speeds[index];
@@ -386,6 +435,11 @@ function useBbmAutomatik(
     setRuettelmotor,
     setAmpel,
     areDoorsClosed: areDoorsClosedFn,
+
+    // Homing functions
+    startHoming,
+    cancelHoming,
+    isAxisHoming,
 
     // Motor helper functions
     getAxisSpeedMmS,
