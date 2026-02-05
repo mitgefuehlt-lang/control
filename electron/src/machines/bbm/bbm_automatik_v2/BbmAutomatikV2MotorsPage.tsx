@@ -216,6 +216,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               />
             </Label>
           </div>
+        </div>
 
         {/* All buttons in one row */}
         <div className="flex gap-2">
