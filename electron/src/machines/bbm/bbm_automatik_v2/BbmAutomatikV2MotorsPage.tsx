@@ -7,6 +7,7 @@ import { EditValue } from "@/control/EditValue";
 import { Label } from "@/control/Label";
 import { roundToDecimals } from "@/lib/decimal";
 import { create } from "zustand";
+import { useState } from "react";
 
 interface AxisControlProps {
   axisIndex: number;
@@ -73,6 +74,10 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   );
   const setAxisValue = useBbmMotorsUiStore((store) => store.setAxisValue);
 
+  // All hooks must be called before conditionals (React rules)
+  const [direction, setDirection] = useState<"cw" | "ccw">("cw");
+  const [error, setError] = useState<string | null>(null);
+
   const inputSpeed = axisInputs.speed;
   const inputAcceleration = axisInputs.acceleration;
   const inputPosition = axisInputs.position;
@@ -80,80 +85,114 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
 
   // Get actual values from server state
   const currentSpeed = getAxisSpeedMmS(axisIndex) ?? 0;
+  const currentSpeedRpm = getAxisSpeedRpm(axisIndex) ?? 0;
   const currentPosition = getAxisPositionMm(axisIndex) ?? 0;
 
   // Check server's target speed to determine if motor is commanded to run
   const serverTargetSpeedHz = state?.axis_target_speeds[axisIndex] ?? 0;
   const isMotorCommanded = serverTargetSpeedHz !== 0;
 
-  // Start motor with input speed (continuous run)
-  const handleStart = () => {
+  // Rotation axis handlers
+  const handleStartRpm = () => {
     if (inputSpeed > 0) {
+      setError(null);
+      const rpm = direction === "cw" ? inputSpeed : -inputSpeed;
+      setAxisSpeedRpm(axisIndex, rpm);
+    }
+  };
+
+  const handleStopRotation = () => {
+    setError(null);
+    stopAxis(axisIndex);
+  };
+
+  // Linear axis handlers
+  const handleStartLinear = () => {
+    if (inputSpeed > 0) {
+      setError(null);
       setAxisAcceleration(axisIndex, inputAcceleration);
       setAxisSpeedMmS(axisIndex, inputSpeed);
     }
   };
 
-  // Stop motor
-  const handleStop = () => {
+  const handleStopLinear = () => {
+    setError(null);
     stopAxis(axisIndex);
   };
 
-  // Move to target position
   const handleMoveToPosition = () => {
+    setError(null);
     setAxisAcceleration(axisIndex, inputAcceleration);
     moveToPosition(axisIndex, inputPosition, inputSpeed);
   };
 
-  // Jog positive (move by step size)
   const handleJogPlus = () => {
     const targetPos = currentPosition + inputStepSize;
+    setError(null);
     setAxisAcceleration(axisIndex, inputAcceleration);
     moveToPosition(axisIndex, targetPos, inputSpeed);
   };
 
-  // Jog negative (move by step size)
   const handleJogMinus = () => {
     const targetPos = Math.max(0, currentPosition - inputStepSize);
+    setError(null);
     setAxisAcceleration(axisIndex, inputAcceleration);
     moveToPosition(axisIndex, targetPos, inputSpeed);
   };
 
-  // Homing (move to 0)
   const handleHoming = () => {
+    setError(null);
     setAxisAcceleration(axisIndex, inputAcceleration);
     moveToPosition(axisIndex, 0, inputSpeed);
   };
 
   if (isRotation) {
-    // Simplified UI for rotation axis (Bürste) - uses RPM
-    const currentSpeedRpm = getAxisSpeedRpm(axisIndex) ?? 0;
-
-    const handleStartRpm = () => {
-      if (inputSpeed > 0) {
-        setAxisSpeedRpm(axisIndex, inputSpeed);
-      }
-    };
-
     return (
       <ControlCard title={`${axisName} (Rotation)`}>
         <div className="flex flex-col gap-4">
-          <Label label="Drehzahl">
-            <EditValue
-              value={inputSpeed}
-              title="Drehzahl"
-              defaultValue={DEFAULT_AXIS_INPUTS.speed}
-              resetPlacement="header"
-              compact
-              min={1}
-              max={MAX_SPEED_RPM}
-              step={1}
-              renderValue={(v) => `${roundToDecimals(v, 0)} RPM`}
-              onChange={(speed) => setAxisValue(axisIndex, "speed", speed)}
-            />
-          </Label>
+          {/* Direction + Speed in row */}
+          <div className="grid grid-cols-2 gap-2">
+            <Label label="Richtung">
+              <div className="flex gap-1">
+                <TouchButton
+                  variant={direction === "ccw" ? "default" : "outline"}
+                  icon="lu:RotateCcw"
+                  onClick={() => setDirection("ccw")}
+                  disabled={isDisabled || isMotorCommanded}
+                  className={`flex-1 h-10 ${direction === "ccw" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                >
+                  CCW
+                </TouchButton>
+                <TouchButton
+                  variant={direction === "cw" ? "default" : "outline"}
+                  icon="lu:RotateCw"
+                  onClick={() => setDirection("cw")}
+                  disabled={isDisabled || isMotorCommanded}
+                  className={`flex-1 h-10 ${direction === "cw" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                >
+                  CW
+                </TouchButton>
+              </div>
+            </Label>
 
-          <div className="flex gap-4">
+            <Label label="Drehzahl">
+              <EditValue
+                value={inputSpeed}
+                title="Drehzahl"
+                defaultValue={DEFAULT_AXIS_INPUTS.speed}
+                resetPlacement="header"
+                compact
+                min={1}
+                max={MAX_SPEED_RPM}
+                step={1}
+                renderValue={(v) => `${roundToDecimals(v, 0)} RPM`}
+                onChange={(speed) => setAxisValue(axisIndex, "speed", speed)}
+              />
+            </Label>
+          </div>
+
+          {/* Buttons */}
+          <div className="flex gap-2">
             <TouchButton
               variant="default"
               icon="lu:Play"
@@ -168,7 +207,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             <TouchButton
               variant="destructive"
               icon="lu:Square"
-              onClick={handleStop}
+              onClick={handleStopRotation}
               disabled={isDisabled || !isMotorCommanded}
               isLoading={isLoading}
               className={`flex-1 h-12 ${!isMotorCommanded && !isDisabled ? "bg-gray-400 hover:bg-gray-400 border-gray-400" : ""}`}
@@ -177,10 +216,22 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             </TouchButton>
           </div>
 
-          {/* Current Status */}
-          <div className="pt-3 border-t text-sm">
-            <span className="text-muted-foreground">Drehzahl: </span>
-            <span className="font-mono">{roundToDecimals(currentSpeedRpm, 1)} RPM</span>
+          {/* Error display */}
+          {error && (
+            <div className="text-center text-red-600 font-semibold">
+              {error}
+            </div>
+          )}
+
+          {/* Current Status - larger */}
+          <div className="pt-3 border-t">
+            <span className="text-muted-foreground text-sm">Drehzahl: </span>
+            <span className="font-mono text-lg font-semibold">{roundToDecimals(Math.abs(currentSpeedRpm), 1)} RPM</span>
+            {currentSpeedRpm !== 0 && (
+              <span className="ml-2 text-muted-foreground">
+                ({currentSpeedRpm > 0 ? "CW" : "CCW"})
+              </span>
+            )}
           </div>
 
           {isMotorCommanded && (
@@ -193,91 +244,83 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     );
   }
 
-  // Full UI for linear axes - compact layout
+  // Full UI for linear axes - improved layout
   return (
     <ControlCard title={`${axisName} (Linear)`}>
       <div className="flex flex-col gap-4">
-        {/* Inputs in single row - 4 columns */}
-        <div className="grid grid-cols-4 gap-1">
-          <div className="min-w-0">
-            <Label label="Geschw.">
-              <EditValue
-                value={inputSpeed}
-                title="Geschwindigkeit"
-                compact
-                defaultValue={DEFAULT_AXIS_INPUTS.speed}
-                resetPlacement="header"
-                min={1}
-                max={MAX_SPEED_MM_S}
-                step={1}
-                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
-                onChange={(speed) => setAxisValue(axisIndex, "speed", speed)}
-              />
-            </Label>
-          </div>
+        {/* Inputs in 2x2 grid for better readability */}
+        <div className="grid grid-cols-2 gap-2">
+          <Label label="Geschw.">
+            <EditValue
+              value={inputSpeed}
+              title="Geschwindigkeit"
+              compact
+              defaultValue={DEFAULT_AXIS_INPUTS.speed}
+              resetPlacement="header"
+              min={1}
+              max={MAX_SPEED_MM_S}
+              step={1}
+              renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
+              onChange={(speed) => setAxisValue(axisIndex, "speed", speed)}
+            />
+          </Label>
 
-          <div className="min-w-0">
-            <Label label="Beschl.">
-              <EditValue
-                value={inputAcceleration}
-                title="Beschleunigung"
-                compact
-                defaultValue={DEFAULT_AXIS_INPUTS.acceleration}
-                resetPlacement="header"
-                min={MIN_ACCELERATION_MM_S2}
-                max={MAX_ACCELERATION_MM_S2}
-                step={10}
-                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
-                onChange={(accel) =>
-                  setAxisValue(axisIndex, "acceleration", accel)
-                }
-              />
-            </Label>
-          </div>
+          <Label label="Beschl.">
+            <EditValue
+              value={inputAcceleration}
+              title="Beschleunigung"
+              compact
+              defaultValue={DEFAULT_AXIS_INPUTS.acceleration}
+              resetPlacement="header"
+              min={MIN_ACCELERATION_MM_S2}
+              max={MAX_ACCELERATION_MM_S2}
+              step={10}
+              renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
+              onChange={(accel) =>
+                setAxisValue(axisIndex, "acceleration", accel)
+              }
+            />
+          </Label>
 
-          <div className="min-w-0">
-            <Label label="Sollpos.">
-              <EditValue
-                value={inputPosition}
-                title="Sollposition"
-                compact
-                defaultValue={DEFAULT_AXIS_INPUTS.position}
-                resetPlacement="header"
-                min={0}
-                max={10000}
-                step={10}
-                renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
-                onChange={(pos) =>
-                  setAxisValue(axisIndex, "position", pos)
-                }
-              />
-            </Label>
-          </div>
+          <Label label="Sollpos.">
+            <EditValue
+              value={inputPosition}
+              title="Sollposition"
+              compact
+              defaultValue={DEFAULT_AXIS_INPUTS.position}
+              resetPlacement="header"
+              min={0}
+              max={10000}
+              step={10}
+              renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
+              onChange={(pos) =>
+                setAxisValue(axisIndex, "position", pos)
+              }
+            />
+          </Label>
 
-          <div className="min-w-0">
-            <Label label="Schritt">
-              <EditValue
-                value={inputStepSize}
-                title="Schrittweite"
-                compact
-                defaultValue={DEFAULT_AXIS_INPUTS.step}
-                resetPlacement="header"
-                min={1}
-                max={1000}
-                step={1}
-                renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
-                onChange={(step) => setAxisValue(axisIndex, "step", step)}
-              />
-            </Label>
-          </div>
+          <Label label="Schritt">
+            <EditValue
+              value={inputStepSize}
+              title="Schrittweite"
+              compact
+              defaultValue={DEFAULT_AXIS_INPUTS.step}
+              resetPlacement="header"
+              min={1}
+              max={1000}
+              step={1}
+              renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
+              onChange={(step) => setAxisValue(axisIndex, "step", step)}
+            />
+          </Label>
         </div>
 
-        {/* All buttons in one row */}
+        {/* Row 1: START / STOP */}
         <div className="flex gap-2">
           <TouchButton
             variant="default"
             icon="lu:Play"
-            onClick={handleStart}
+            onClick={handleStartLinear}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
             className="flex-1 h-12 bg-green-600 hover:bg-green-700"
@@ -288,12 +331,26 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
           <TouchButton
             variant="destructive"
             icon="lu:Square"
-            onClick={handleStop}
+            onClick={handleStopLinear}
             disabled={isDisabled || !isMotorCommanded}
             isLoading={isLoading}
             className={`flex-1 h-12 ${!isMotorCommanded && !isDisabled ? "bg-gray-400 hover:bg-gray-400 border-gray-400 text-gray-600" : ""}`}
           >
             STOP
+          </TouchButton>
+        </div>
+
+        {/* Row 2: JOG- / POSITION / JOG+ / HOMING */}
+        <div className="flex gap-2">
+          <TouchButton
+            variant="default"
+            icon="lu:Minus"
+            onClick={handleJogMinus}
+            disabled={isDisabled || isMotorCommanded}
+            isLoading={isLoading}
+            className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
+          >
+            JOG-
           </TouchButton>
 
           <TouchButton
@@ -304,18 +361,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             isLoading={isLoading}
             className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
           >
-            POS
-          </TouchButton>
-
-          <TouchButton
-            variant="default"
-            icon="lu:Minus"
-            onClick={handleJogMinus}
-            disabled={isDisabled || isMotorCommanded}
-            isLoading={isLoading}
-            className="h-12 px-4 bg-purple-600 hover:bg-purple-700"
-          >
-            JOG-
+            FAHRE
           </TouchButton>
 
           <TouchButton
@@ -324,7 +370,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             onClick={handleJogPlus}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
-            className="h-12 px-4 bg-purple-600 hover:bg-purple-700"
+            className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
           >
             JOG+
           </TouchButton>
@@ -335,21 +381,28 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             onClick={handleHoming}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
-            className="flex-1 h-12 bg-yellow-500 hover:bg-yellow-600 text-black"
+            className="flex-1 h-12 bg-amber-500 hover:bg-amber-600 text-black"
           >
-            HOMING
+            HOME
           </TouchButton>
         </div>
 
-        {/* Current Status - compact */}
-        <div className="flex gap-6 pt-3 border-t text-sm">
+        {/* Error display */}
+        {error && (
+          <div className="text-center text-red-600 font-semibold">
+            {error}
+          </div>
+        )}
+
+        {/* Current Status - larger and more prominent */}
+        <div className="flex justify-between pt-3 border-t">
           <div>
-            <span className="text-muted-foreground">Geschw: </span>
-            <span className="font-mono">{roundToDecimals(currentSpeed, 1)} mm/s</span>
+            <span className="text-muted-foreground text-sm">Geschw: </span>
+            <span className="font-mono text-lg font-semibold">{roundToDecimals(currentSpeed, 1)} mm/s</span>
           </div>
           <div>
-            <span className="text-muted-foreground">Pos: </span>
-            <span className="font-mono">{roundToDecimals(currentPosition, 1)} mm</span>
+            <span className="text-muted-foreground text-sm">Pos: </span>
+            <span className="font-mono text-lg font-semibold">{roundToDecimals(currentPosition, 1)} mm</span>
           </div>
         </div>
 
