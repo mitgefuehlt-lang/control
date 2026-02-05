@@ -29,6 +29,7 @@ type Props = {
   description?: string;
   icon?: IconName;
   defaultValue?: number;
+  compact?: boolean;
   min?: number;
   minSlider?: number; // Override the slider min value
   minLabel?: string;
@@ -53,11 +54,18 @@ const inputRowStyle = cva(
   },
 );
 
-const buttonStyle = cva("flex w-min flex-col items-center gap-4 ", {
+const buttonStyle = cva("flex w-min flex-col items-center", {
   variants: {
     open: {
       true: "bg-slate-100",
     },
+    size: {
+      default: "gap-4 py-4",
+      compact: "gap-2 py-2",
+    },
+  },
+  defaultVariants: {
+    size: "default",
   },
 });
 
@@ -87,6 +95,7 @@ export function EditValue({
   title,
   description,
   defaultValue,
+  compact,
   step = 1,
   inverted,
   min,
@@ -458,6 +467,10 @@ export function EditValue({
   }, [stopContinuousChange]);
 
   const valueIsDefined = value !== undefined && value !== null;
+  const sizeVariant = compact ? "compact" : "default";
+  const valueTextClass = compact ? "text-2xl" : "text-4xl";
+  const iconSizeClass = compact ? "size-4" : "size-6";
+  const separatorMarginClass = compact ? "mx-2" : "mx-4";
 
   return (
     <Popover
@@ -473,18 +486,18 @@ export function EditValue({
     >
       <PopoverTrigger className="w-min" asChild>
         <TouchButton
-          className={buttonStyle({ open, class: "py-4" })}
+          className={buttonStyle({ open, size: sizeVariant })}
           variant="outline"
           disabled={!valueIsDefined}
         >
           <div className="flex flex-row items-center gap-2">
-            <span className="font-mono text-4xl font-bold">
+            <span className={`font-mono ${valueTextClass} font-bold`}>
               {renderValueToReactNode(value, unit, renderValue)}
             </span>
             <span>{renderUnitSymbol(unit)}</span>
           </div>
-          <Separator orientation="vertical" className="mx-4" />
-          <Icon name="lu:Pencil" className="size-6" />
+          <Separator orientation="vertical" className={separatorMarginClass} />
+          <Icon name="lu:Pencil" className={iconSizeClass} />
         </TouchButton>
       </PopoverTrigger>
       {valueIsDefined && (

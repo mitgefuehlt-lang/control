@@ -155,56 +155,67 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   return (
     <ControlCard title={`${axisName} (Linear)`}>
       <div className="flex flex-col gap-4">
-        {/* Inputs in single row - 4 columns with auto-fit */}
-        <div className="flex flex-wrap gap-3">
-          <Label label="Geschwindigkeit">
-            <EditValue
-              value={inputSpeed}
-              title="Geschwindigkeit"
-              min={1}
-              max={MAX_SPEED_MM_S}
-              step={1}
-              renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
-              onChange={(speed) => setInputSpeed(speed)}
-            />
-          </Label>
+        {/* Inputs in single row - 4 columns */}
+        <div className="grid grid-cols-4 gap-1">
+          <div className="min-w-0">
+            <Label label="Geschw.">
+              <EditValue
+                value={inputSpeed}
+                title="Geschwindigkeit"
+                compact
+                min={1}
+                max={MAX_SPEED_MM_S}
+                step={1}
+                renderValue={(v) => `${roundToDecimals(v, 0)}`}
+                onChange={(speed) => setInputSpeed(speed)}
+              />
+            </Label>
+          </div>
 
-          <Label label="Beschleunigung">
-            <EditValue
-              value={inputAcceleration}
-              title="Beschleunigung"
-              min={MIN_ACCELERATION_MM_S2}
-              max={MAX_ACCELERATION_MM_S2}
-              step={10}
-              renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
-              onChange={(accel) => setInputAcceleration(accel)}
-            />
-          </Label>
+          <div className="min-w-0">
+            <Label label="Beschl.">
+              <EditValue
+                value={inputAcceleration}
+                title="Beschleunigung"
+                compact
+                min={MIN_ACCELERATION_MM_S2}
+                max={MAX_ACCELERATION_MM_S2}
+                step={10}
+                renderValue={(v) => `${roundToDecimals(v, 0)}`}
+                onChange={(accel) => setInputAcceleration(accel)}
+              />
+            </Label>
+          </div>
 
-          <Label label="Sollposition">
-            <EditValue
-              value={inputPosition}
-              title="Sollposition"
-              min={0}
-              max={10000}
-              step={10}
-              renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
-              onChange={(pos) => setInputPosition(pos)}
-            />
-          </Label>
+          <div className="min-w-0">
+            <Label label="Sollpos.">
+              <EditValue
+                value={inputPosition}
+                title="Sollposition"
+                compact
+                min={0}
+                max={10000}
+                step={10}
+                renderValue={(v) => `${roundToDecimals(v, 0)}`}
+                onChange={(pos) => setInputPosition(pos)}
+              />
+            </Label>
+          </div>
 
-          <Label label="Schrittweite">
-            <EditValue
-              value={inputStepSize}
-              title="Schrittweite"
-              min={1}
-              max={1000}
-              step={1}
-              renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
-              onChange={(step) => setInputStepSize(step)}
-            />
-          </Label>
-        </div>
+          <div className="min-w-0">
+            <Label label="Schritt">
+              <EditValue
+                value={inputStepSize}
+                title="Schrittweite"
+                compact
+                min={1}
+                max={1000}
+                step={1}
+                renderValue={(v) => `${roundToDecimals(v, 0)}`}
+                onChange={(step) => setInputStepSize(step)}
+              />
+            </Label>
+          </div>
 
         {/* All buttons in one row */}
         <div className="flex gap-2">
