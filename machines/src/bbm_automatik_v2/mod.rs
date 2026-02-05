@@ -364,28 +364,61 @@ impl BbmAutomatikV2 {
     pub fn update_software_ramp(&mut self, dt_secs: f32) -> bool {
         let mut changed = false;
         for i in 0..self.axis_speeds.len() {
-            // Check if we're in position mode and reached target
+            // Check if we're in position mode
             if self.axis_position_mode[i] {
                 let current_pos = self.axes[i].get_position();
                 let target_pos = self.axis_target_positions[i];
-                let moving_forward = self.axis_target_speeds[i] > 0;
+                let current_speed_hz = self.axis_speeds[i].abs() as f32;
+                let accel = self.axis_accelerations[i];
 
-                // Check if we've reached or passed the target
-                let reached = if moving_forward {
-                    current_pos >= target_pos
+                // Calculate remaining distance in pulses
+                let remaining_pulses = if target_pos > current_pos {
+                    target_pos - current_pos
                 } else {
-                    current_pos <= target_pos
+                    current_pos - target_pos
+                } as f32;
+
+                // Calculate braking distance: s = v² / (2*a)
+                // Convert: speed is in Hz (pulses/s), accel is in mm/s²
+                // accel in pulses/s² = accel_mm_s2 * PULSES_PER_MM
+                let accel_pulses_s2 = accel * mechanics::PULSES_PER_MM;
+                let braking_distance_pulses = if accel_pulses_s2 > 0.0 {
+                    (current_speed_hz * current_speed_hz) / (2.0 * accel_pulses_s2)
+                } else {
+                    0.0
                 };
 
-                if reached {
-                    // IMMEDIATE stop - no ramping for position mode
+                // Add small margin to ensure we stop in time
+                let braking_distance_with_margin = braking_distance_pulses + 5.0;
+
+                // Check if we need to start braking
+                if remaining_pulses <= braking_distance_with_margin && self.axis_target_speeds[i] != 0 {
+                    // Start braking (ramp will handle the deceleration)
                     self.axis_target_speeds[i] = 0;
-                    self.axis_speeds[i] = 0;
-                    self.axes[i].set_frequency(0);
-                    self.axis_position_mode[i] = false;
-                    changed = true;
                     tracing::info!(
-                        "[BbmAutomatikV2] Axis {} reached target position {} pulses (current: {})",
+                        "[BbmAutomatikV2] Axis {} starting brake at {} pulses remaining (brake dist: {:.1})",
+                        i,
+                        remaining_pulses as u32,
+                        braking_distance_pulses
+                    );
+                }
+
+                // Check if we've actually stopped and reached target
+                let moving_forward = self.axis_speeds[i] > 0;
+                let reached = if moving_forward {
+                    current_pos >= target_pos
+                } else if self.axis_speeds[i] < 0 {
+                    current_pos <= target_pos
+                } else {
+                    // Speed is 0, check if we're close enough (within 2 pulses tolerance)
+                    remaining_pulses <= 2.0
+                };
+
+                if reached && self.axis_speeds[i] == 0 {
+                    // Position reached and stopped
+                    self.axis_position_mode[i] = false;
+                    tracing::info!(
+                        "[BbmAutomatikV2] Axis {} reached target {} pulses (current: {})",
                         i,
                         target_pos,
                         current_pos
