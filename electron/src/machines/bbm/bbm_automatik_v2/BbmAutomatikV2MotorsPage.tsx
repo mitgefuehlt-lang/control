@@ -163,6 +163,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 value={inputSpeed}
                 title="Geschwindigkeit"
                 compact
+                unit="mm/s"
                 min={1}
                 max={MAX_SPEED_MM_S}
                 step={1}
@@ -178,6 +179,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 value={inputAcceleration}
                 title="Beschleunigung"
                 compact
+                unit="mm/s^2"
                 min={MIN_ACCELERATION_MM_S2}
                 max={MAX_ACCELERATION_MM_S2}
                 step={10}
@@ -193,6 +195,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 value={inputPosition}
                 title="Sollposition"
                 compact
+                unit="mm"
                 min={0}
                 max={10000}
                 step={10}
@@ -208,6 +211,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 value={inputStepSize}
                 title="Schrittweite"
                 compact
+                unit="mm"
                 min={1}
                 max={1000}
                 step={1}

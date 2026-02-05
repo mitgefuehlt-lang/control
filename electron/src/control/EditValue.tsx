@@ -60,8 +60,8 @@ const buttonStyle = cva("flex w-min flex-col items-center", {
       true: "bg-slate-100",
     },
     size: {
-      default: "gap-4 py-4",
-      compact: "gap-2 py-2",
+      default: "gap-4",
+      compact: "gap-4 px-4 py-5",
     },
   },
   defaultVariants: {
@@ -468,9 +468,9 @@ export function EditValue({
 
   const valueIsDefined = value !== undefined && value !== null;
   const sizeVariant = compact ? "compact" : "default";
-  const valueTextClass = compact ? "text-2xl" : "text-4xl";
-  const iconSizeClass = compact ? "size-4" : "size-6";
-  const separatorMarginClass = compact ? "mx-2" : "mx-4";
+  const valueTextClass = "text-4xl";
+  const iconSizeClass = "size-6";
+  const separatorMarginClass = compact ? "mx-3" : "mx-4";
 
   return (
     <Popover
@@ -496,7 +496,10 @@ export function EditValue({
             </span>
             <span>{renderUnitSymbol(unit)}</span>
           </div>
-          <Separator orientation="vertical" className={separatorMarginClass} />
+          <Separator
+            orientation="vertical"
+            className={`${separatorMarginClass} h-8 bg-muted-foreground/40`}
+          />
           <Icon name="lu:Pencil" className={iconSizeClass} />
         </TouchButton>
       </PopoverTrigger>

@@ -7,6 +7,8 @@ export function getUnitIcon(unit: Unit): IconName {
   switch (unit) {
     case "m/s":
       return "lu:Gauge";
+    case "mm/s^2":
+      return "lu:Gauge";
     case "mm":
       return "lu:Ruler";
     case "cm":
@@ -57,6 +59,8 @@ export function renderUnitSymbol(unit: Unit | undefined): string {
   switch (unit) {
     case "m/s":
       return "m/s";
+    case "mm/s^2":
+      return "mm/s^2";
     case "mm":
       return "mm";
     case "cm":
@@ -132,6 +136,8 @@ export function renderUnitSymbolLong(unit: Unit): string {
   switch (unit) {
     case "m/s":
       return "meters/second";
+    case "mm/s^2":
+      return "millimeters/second^2";
     case "mm":
       return "millimeters";
     case "cm":
@@ -183,6 +189,7 @@ export function renderUnitSymbolLong(unit: Unit): string {
 
 export const units = [
   "m/s",
+  "mm/s^2",
   "mm",
   "cm",
   "rpm",
