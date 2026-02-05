@@ -33,13 +33,13 @@ pub mod axes {
     pub const BUERSTE: usize = 3;    // Bürste (Rotation)
 }
 
-/// Digital input indices
+/// Digital input indices (0-based array index, DI1 = index 0)
 pub mod inputs {
-    pub const REF_MT: usize = 1;        // Referenzschalter Transporter (DI1)
-    pub const REF_SCHIEBER: usize = 2;  // Referenzschalter Schieber (DI2)
-    pub const REF_DRUECKER: usize = 3;  // Referenzschalter Drücker (DI3)
-    pub const TUER_1: usize = 4;        // Türsensor 1 (DI4)
-    pub const TUER_2: usize = 5;        // Türsensor 2 (DI5)
+    pub const REF_MT: usize = 0;        // Referenzschalter Transporter (DI1 = index 0)
+    pub const REF_SCHIEBER: usize = 1;  // Referenzschalter Schieber (DI2 = index 1)
+    pub const REF_DRUECKER: usize = 2;  // Referenzschalter Drücker (DI3 = index 2)
+    pub const TUER_1: usize = 3;        // Türsensor 1 (DI4 = index 3)
+    pub const TUER_2: usize = 4;        // Türsensor 2 (DI5 = index 4)
 }
 
 /// Digital output indices
@@ -238,19 +238,30 @@ impl BbmAutomatikV2 {
         }
     }
 
-    /// Stop all axes (set speed to 0)
+    /// Stop all axes (set speed to 0, cancel all homings)
     pub fn stop_all_axes(&mut self) {
         for i in 0..self.axis_speeds.len() {
+            // Cancel homing if active
+            if self.axis_homing_phase[i] != HomingPhase::Idle {
+                self.axis_homing_phase[i] = HomingPhase::Idle;
+                tracing::info!("[BbmAutomatikV2] Axis {} homing cancelled by stop_all", i);
+            }
             self.axis_speeds[i] = 0;
             self.axis_target_speeds[i] = 0;
+            self.axis_position_mode[i] = false;
             self.axes[i].set_frequency(0);
         }
         self.emit_state();
     }
 
-    /// Stop single axis
+    /// Stop single axis (also cancels homing if active)
     pub fn stop_axis(&mut self, index: usize) {
         if index < self.axis_speeds.len() {
+            // Cancel homing if active
+            if self.axis_homing_phase[index] != HomingPhase::Idle {
+                self.axis_homing_phase[index] = HomingPhase::Idle;
+                tracing::info!("[BbmAutomatikV2] Axis {} homing cancelled by stop", index);
+            }
             self.axis_speeds[index] = 0;
             self.axis_target_speeds[index] = 0;
             self.axis_position_mode[index] = false;
