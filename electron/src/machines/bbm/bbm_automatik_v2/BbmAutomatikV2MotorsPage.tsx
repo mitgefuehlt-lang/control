@@ -355,7 +355,6 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
         <div className="flex gap-2">
           <TouchButton
             variant="default"
-            icon="lu:Minus"
             onClick={handleJogMinus}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
@@ -377,7 +376,6 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
 
           <TouchButton
             variant="default"
-            icon="lu:Plus"
             onClick={handleJogPlus}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
