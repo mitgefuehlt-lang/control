@@ -1131,3 +1131,187 @@ ssh qitech@nixos
 - [ ] Homing-Sequenz implementieren (Referenzfahrt)
 - [ ] Automatik-Zyklus (State Machine)
 - [ ] Sicherheitslogik (Tuersensoren, Endschalter)
+
+---
+
+## Session 2026-02-05: BBM Automatik V2 - Homing & Arduino-Analyse
+
+### Arduino-Code Analyse (BBMx22_Automatik_Code.ino v3.2)
+
+Der Arduino-Code fuer die gleiche Maschine wurde analysiert, um nuetzliche Parameter und Patterns zu extrahieren.
+**Wichtig:** Wir bauen alles selbst, aber die Parameter dienen als Referenz.
+
+#### Parameter-Vergleich
+
+| Parameter | Arduino | Unsere Implementierung | Anmerkung |
+|-----------|---------|------------------------|-----------|
+| Steps/mm | 20 | 20 | Identisch ✓ |
+| Homing Speed | 10 mm/s | 15 mm/s | Unsere etwas schneller |
+| Max Speed | 200 mm/s | 250 mm/s | Mehr Reserve |
+| Acceleration | 500 mm/s² | 100 mm/s² (default) | Konfigurierbar |
+| Homing Backoff | 2 mm | 2 mm | Identisch ✓ |
+
+#### Position-Parameter aus Arduino
+
+**Achse 1 (Transporter):**
+- Start: 5 mm, Auto-Run: 34.5 mm, Soft Limit: 230 mm
+- Advance pro Zyklus: 10 mm
+
+**Achse 2 (Schieber):**
+- Start: 7 mm, Target: 51 mm, Soft Limit: 53 mm
+- Wobble: 1.5 mm, 1 Zyklus
+
+**Achse 3 (Druecker):**
+- Start: 60 mm, Target: 105 mm, Soft Limit: 107 mm
+
+#### Auto-Sequenz (19 Zyklen pro Magazin)
+
+```
+1. Achse 1 → Run Position (34.5mm)
+2. Loop (19x):
+   a. Wobble Achse 2 (±1.5mm)
+   b. Achse 2 → Target (51mm)
+   c. Achse 3 → Target (105mm)
+   d. Achse 3 → Start (60mm)
+   e. Achse 2 → Start + Achse 1 -10mm (parallel)
+3. Achse 1 → Load Position (5mm)
+```
+
+#### Safety Features im Arduino-Code
+
+| Feature | Implementierung | Status bei uns |
+|---------|-----------------|----------------|
+| Tuersensoren (2x NC) | Emergency Stop wenn offen | Inputs vorhanden, Logik TODO |
+| Soft Limits | Max-Positionen pro Achse | TODO |
+| Driver Alarms | 3 Alarm-Pins (Active LOW) | Nicht relevant (EtherCAT) |
+| Watchdog | 2s Timeout, Auto-Reset | EtherCAT hat eigene Watchdogs |
+| Homing Timeout | 20s (Achse1: 60s) | TODO |
+| Auto Move Timeout | 30s pro Bewegung | TODO |
+| Input Debounce | 10ms | Nicht noetig (EtherCAT ist digital) |
+
+#### Signal Tower States (Arduino)
+
+```
+STARTUP → WAIT_HOMING → HOMING → AUTO_RUNNING ↔ LOAD_WAIT
+                ↓           ↓          ↓
+              ERROR ←←←←←←←←←←←←←←←←←←←
+```
+
+#### Homing-Sequenz (Arduino-Pattern)
+
+**Reihenfolge:** Achse 3 zuerst, dann Achse 2 + Achse 1 parallel
+
+**3-Phasen-Homing pro Achse:**
+1. Negative Richtung fahren bis Sensor schaltet
+2. 2mm zurueckfahren vom Sensor
+3. Position auf 0 setzen
+4. (Optional) Zur Startposition fahren
+
+### Homing-Implementierung (Rust/EtherCAT)
+
+Homing wurde in `machines/src/bbm_automatik_v2/` implementiert:
+
+**mod.rs - HomingPhase Enum:**
+```rust
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HomingPhase {
+    Idle,
+    SearchingSensor,   // Phase 1: Fahr zum Sensor
+    Retracting,        // Phase 2: 2mm zurueck
+    SettingZero,       // Phase 3: Position nullen
+}
+```
+
+**Homing-Konstanten:**
+```rust
+pub mod homing {
+    pub const HOMING_SPEED_MM_S: f32 = 15.0;
+    pub const RETRACT_DISTANCE_MM: f32 = 2.0;
+}
+```
+
+**Input-Mapping (Referenzschalter):**
+```rust
+pub mod inputs {
+    pub const REF_MT: usize = 1;        // DI1: Transporter
+    pub const REF_SCHIEBER: usize = 2;  // DI2: Schieber
+    pub const REF_DRUECKER: usize = 3;  // DI3: Druecker
+    pub const TUER_1: usize = 4;        // DI4
+    pub const TUER_2: usize = 5;        // DI5
+}
+```
+
+**API-Erweiterungen (api.rs):**
+- `StartHoming { index: usize }` - Startet Homing fuer eine Achse
+- `CancelHoming { index: usize }` - Bricht Homing ab
+- `axis_homing_active: [bool; 4]` in StateEvent
+
+**PulseTrainOutput-Erweiterungen (pulse_train_output.rs):**
+```rust
+pub fn reset_position(&self) {
+    let mut output = (self.get_output)();
+    output.set_counter = true;
+    output.set_counter_value = 0;
+    (self.set_output)(output);
+}
+
+pub fn clear_set_counter(&self) {
+    let mut output = (self.get_output)();
+    output.set_counter = false;
+    (self.set_output)(output);
+}
+```
+
+### UI-Verbesserungen (Motors Page)
+
+- 2x2 Grid fuer Inputs (Geschw/Beschl/Sollpos/Schritt)
+- Button-Layout: START/STOP in Reihe 1, JOG-/FAHRE/JOG+/HOME in Reihe 2
+- HOME-Button zeigt "STOP" waehrend Homing (pulsierend)
+- Buerste mit CW/CCW Richtungswahl
+- Zustand-Store fuer persistente Input-Werte (Zustand bleibt nach Tab-Wechsel)
+
+### Naechste Schritte
+
+1. [ ] Homing testen auf echter Hardware (Sensor angeschlossen an DI2)
+2. [ ] Soft Limits implementieren (Achsen-Grenzen)
+3. [ ] Tuer-Safety implementieren (Emergency Stop wenn Tuer offen)
+4. [ ] Zweite EL2522 anschliessen (Druecker + Buerste)
+5. [ ] Auto-Sequenz State Machine (19 Zyklen)
+6. [ ] Wobble-Funktion fuer Schieber
+
+### Commits (2026-02-05)
+
+- `c733936c` - Implement proper homing sequence for BBM axes
+- (weitere Commits aus Codex-Session siehe unten)
+
+---
+
+## Session 2026-02-05 (Codex): BBM UI Layout + Tower UI Workflow
+
+### UI-Aenderungen (BBM Automatik V2)
+- `electron/src/control/EditValue.tsx`: Compact-Layout fuer kleine Eingabefelder weiter justiert (Padding/Abstaende), Separator-Sichtbarkeit erzwungen, und neues `resetPlacement` eingefuehrt (Position des Reset-Pfeils im Popover).
+- `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2MotorsPage.tsx`:
+  - 4 Eingabefelder in einer Reihe (kompakt).
+  - Einheiten wieder als Teil der Anzeige (bessere Lesbarkeit).
+  - Reset-Pfeil jetzt **im Popover-Header** (oben rechts) statt auf der Card.
+  - Buerste (Rotation) Eingabefeld auf gleiche Groesse wie die anderen Achsen (`compact`).
+- `electron/src/machines/bbm/bbm_automatik_v2/useBbmAutomatikV2.ts`: Achsenname `MT` -> `Transporter`.
+
+### Bugs/Probleme + Loesungen
+- **JSX-Fehler**: `Expected corresponding JSX closing tag for <div>` in `BbmAutomatikV2MotorsPage.tsx` durch fehlendes `</div>` nach dem 4er-Grid.  
+  **Fix:** fehlendes Closing-Tag eingefuegt.
+- **Tower-UI zeigt "no data"**: Backend nicht erreichbar auf `localhost:3001` (SSH-Tunnel weg).  
+  **Fix:** Tunnel neu starten:
+  ```bash
+  ssh -N -L 3001:localhost:3001 qitech@192.168.178.106
+  ```
+  und sicherstellen, dass der Server laeuft (`sudo systemctl restart qitech-control-server` falls noetig).
+- **Tower-UI nicht gestartet**: Vite/Electron Dev-Server lief nicht.  
+  **Fix:** `cd electron && npm run start`.
+
+### Deploys (Commits)
+1. `6b1828ec` - Make BBM motor inputs compact
+2. `a15d276e` - Fix BBM motors layout closing div
+3. `bd0ef67f` - Move BBM reset into edit popover
+4. `56345158` - Add header reset option to EditValue
+5. `947b0c1c` - Adjust BBM axis label and rotation input size

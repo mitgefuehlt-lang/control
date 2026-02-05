@@ -325,7 +325,10 @@ impl BbmAutomatikV2 {
     /// This starts the motor and auto-stops when position is reached
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
         if index < self.axes.len() {
-            let target_pulses = (position_mm * mechanics::PULSES_PER_MM) as u32;
+            // Clamp to 0 minimum (no negative positions - would cause u32 overflow)
+            let clamped_mm = position_mm.max(0.0);
+            // Round to nearest integer mm to avoid float accumulation errors
+            let target_pulses = (clamped_mm.round() * mechanics::PULSES_PER_MM) as u32;
             let current_pulses = self.axes[index].get_position();
 
             // Determine direction based on current vs target position
@@ -349,9 +352,9 @@ impl BbmAutomatikV2 {
 
             self.emit_state();
             tracing::info!(
-                "[BbmAutomatikV2] Axis {} moving to {:.1} mm ({} pulses) at {:.1} mm/s",
+                "[BbmAutomatikV2] Axis {} moving to {:.0} mm ({} pulses) at {:.1} mm/s",
                 index,
-                position_mm,
+                clamped_mm.round(),
                 target_pulses,
                 speed_mm_s
             );

@@ -38,7 +38,8 @@
       "Bash(C:UsersAdmin.cargobincargo.exe check -p machines)",
       "Bash(cmd.exe:*)",
       "Bash(git rm:*)",
-      "Bash(gh workflow:*)"
+      "Bash(gh workflow:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

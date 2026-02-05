@@ -130,14 +130,16 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   };
 
   const handleJogPlus = () => {
-    const targetPos = currentPosition + inputStepSize;
+    // Round to avoid float accumulation errors
+    const targetPos = Math.round(currentPosition + inputStepSize);
     setError(null);
     setAxisAcceleration(axisIndex, inputAcceleration);
     moveToPosition(axisIndex, targetPos, inputSpeed);
   };
 
   const handleJogMinus = () => {
-    const targetPos = Math.max(0, currentPosition - inputStepSize);
+    // Round to avoid float accumulation errors, minimum 0
+    const targetPos = Math.max(0, Math.round(currentPosition - inputStepSize));
     setError(null);
     setAxisAcceleration(axisIndex, inputAcceleration);
     moveToPosition(axisIndex, targetPos, inputSpeed);
