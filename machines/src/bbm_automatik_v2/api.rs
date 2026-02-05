@@ -56,8 +56,10 @@ pub enum Mutation {
     SetAllOutputs { on: bool },
     /// Set speed for a single axis (in Hz)
     SetAxisSpeed { index: usize, speed: i32 },
-    /// Set speed for a single axis (in mm/s)
+    /// Set speed for a single axis (in mm/s) - for linear axes
     SetAxisSpeedMmS { index: usize, speed_mm_s: f32 },
+    /// Set speed for a single axis (in RPM) - for rotation axes
+    SetAxisSpeedRpm { index: usize, rpm: f32 },
     /// Set acceleration for a single axis (in mm/s²)
     SetAxisAcceleration { index: usize, accel_mm_s2: f32 },
     /// Move axis to a target position (in mm) with given speed (mm/s)
@@ -113,6 +115,9 @@ impl MachineApi for BbmAutomatikV2 {
             Mutation::SetAxisSpeed { index, speed } => self.set_axis_speed(index, speed),
             Mutation::SetAxisSpeedMmS { index, speed_mm_s } => {
                 self.set_axis_speed_mm_s(index, speed_mm_s)
+            }
+            Mutation::SetAxisSpeedRpm { index, rpm } => {
+                self.set_axis_speed_rpm(index, rpm)
             }
             Mutation::SetAxisAcceleration { index, accel_mm_s2 } => {
                 self.set_axis_acceleration(index, accel_mm_s2)

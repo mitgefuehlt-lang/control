@@ -59,12 +59,12 @@ pub mod mechanics {
     /// Calculated pulses per mm
     pub const PULSES_PER_MM: f32 = PULSES_PER_REV as f32 / LEAD_MM; // = 20.0
 
-    /// Convert mm/s to frequency (Hz)
+    /// Convert mm/s to frequency (Hz) - for linear axes with ball screw
     pub fn mm_per_s_to_hz(mm_per_s: f32) -> i32 {
         (mm_per_s * PULSES_PER_MM) as i32
     }
 
-    /// Convert frequency (Hz) to mm/s
+    /// Convert frequency (Hz) to mm/s - for linear axes
     pub fn hz_to_mm_per_s(hz: i32) -> f32 {
         hz as f32 / PULSES_PER_MM
     }
@@ -72,6 +72,17 @@ pub mod mechanics {
     /// Convert position (pulses) to mm
     pub fn pulses_to_mm(pulses: u32) -> f32 {
         pulses as f32 / PULSES_PER_MM
+    }
+
+    /// Convert RPM to frequency (Hz) - for rotation axes (no ball screw)
+    /// RPM * 200 pulses/rev / 60 sec/min = Hz
+    pub fn rpm_to_hz(rpm: f32) -> i32 {
+        (rpm * PULSES_PER_REV as f32 / 60.0) as i32
+    }
+
+    /// Convert frequency (Hz) to RPM - for rotation axes
+    pub fn hz_to_rpm(hz: i32) -> f32 {
+        hz as f32 * 60.0 / PULSES_PER_REV as f32
     }
 }
 
@@ -218,6 +229,7 @@ impl BbmAutomatikV2 {
 
     /// Set target axis speed in mm/s (software ramp will handle transition)
     /// Positive = forward, Negative = backward
+    /// For linear axes with ball screw
     pub fn set_axis_speed_mm_s(&mut self, index: usize, mm_per_s: f32) {
         if index < self.axis_target_speeds.len() {
             let hz = mechanics::mm_per_s_to_hz(mm_per_s);
@@ -229,6 +241,22 @@ impl BbmAutomatikV2 {
                 mm_per_s,
                 hz,
                 self.axis_accelerations[index]
+            );
+        }
+    }
+
+    /// Set target axis speed in RPM (software ramp will handle transition)
+    /// For rotation axes without ball screw (e.g., Bürste)
+    pub fn set_axis_speed_rpm(&mut self, index: usize, rpm: f32) {
+        if index < self.axis_target_speeds.len() {
+            let hz = mechanics::rpm_to_hz(rpm);
+            self.axis_target_speeds[index] = hz;
+            self.emit_state();
+            tracing::info!(
+                "[BbmAutomatikV2] Axis {} target speed set: {:.1} RPM = {} Hz",
+                index,
+                rpm,
+                hz
             );
         }
     }

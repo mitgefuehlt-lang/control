@@ -13,7 +13,32 @@
       "Bash(gh run:*)",
       "Bash(tailscale status:*)",
       "Bash(ping:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(git push:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout:*)",
+      "Bash(npm run:*)",
+      "Bash(npm start)",
+      "Bash(npm install:*)",
+      "Bash(curl:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(tasklist:*)",
+      "Bash(taskkill:*)",
+      "Bash(ls:*)",
+      "Bash(xargs:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cargo build:*)",
+      "Bash(~/.cargo/bin/cargo check:*)",
+      "Bash(/c/Users/Admin/.cargo/bin/cargo build:*)",
+      "Bash(cmd.exe /c \"where cargo\")",
+      "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\Admin\\\\Desktop\\\\Rust_Beckhoff_Projekt\\\\Qitech_Github\\\\control-master-clean && cargo build --release -p control\" 2>&1:*)",
+      "Bash(cmd.exe /c \"tailscale status\")",
+      "Bash(C:UsersAdmin.cargobincargo.exe check -p machines)",
+      "Bash(cmd.exe:*)",
+      "Bash(git rm:*)",
+      "Bash(gh workflow:*)"
     ]
   }
 }

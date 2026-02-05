@@ -3,7 +3,7 @@ import { pushRuntimeSample } from "./runtimeSeries";
 
 // Talk directly to the Rust API on port 3001.
 // If you later proxy via Vite/Electron, make this configurable.
-const API_BASE = "http://127.0.0.1:3001";
+const API_BASE = "http://localhost:3001";
 const RUNTIME_URL = `${API_BASE}/api/v1/metrics/runtime/latest`;
 
 export type RuntimeMetricsSample = {

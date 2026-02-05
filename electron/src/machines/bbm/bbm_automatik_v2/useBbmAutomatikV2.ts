@@ -14,7 +14,9 @@ import { produce } from "immer";
 
 // Motor constants
 const PULSES_PER_MM = 20;
+const PULSES_PER_REV = 200;
 const MAX_SPEED_MM_S = 250;
+const MAX_SPEED_RPM = 100;  // Max RPM for rotation axes
 const DEFAULT_ACCELERATION_MM_S2 = 100;
 const MAX_ACCELERATION_MM_S2 = 500;
 const MIN_ACCELERATION_MM_S2 = 1;
@@ -139,6 +141,36 @@ function useBbmAutomatik(
           data: {
             action: "SetAxisSpeedMmS",
             value: { index, speed_mm_s },
+          },
+        }),
+    );
+  };
+
+  // SetAxisSpeedRpm mutation (for rotation axes)
+  const setAxisSpeedRpmSchema = z.object({
+    action: z.literal("SetAxisSpeedRpm"),
+    value: z.object({
+      index: z.number(),
+      rpm: z.number(),
+    }),
+  });
+  const { request: requestSetAxisSpeedRpm } =
+    useMachineMutation(setAxisSpeedRpmSchema);
+
+  const setAxisSpeedRpm = (index: number, rpm: number) => {
+    updateStateOptimistically(
+      (current) => {
+        if (current.data.axis_speeds && index >= 0 && index < 4) {
+          // RPM to Hz: rpm * 200 / 60
+          current.data.axis_speeds[index] = Math.round(rpm * PULSES_PER_REV / 60);
+        }
+      },
+      () =>
+        requestSetAxisSpeedRpm({
+          machine_identification_unique,
+          data: {
+            action: "SetAxisSpeedRpm",
+            value: { index, rpm },
           },
         }),
     );
@@ -296,10 +328,16 @@ function useBbmAutomatik(
     );
   };
 
-  // Helper to get axis speed in mm/s
+  // Helper to get axis speed in mm/s (for linear axes)
   const getAxisSpeedMmS = (index: number): number | undefined => {
     const speedHz = stateOptimistic.value?.data.axis_speeds[index];
     return speedHz !== undefined ? speedHz / PULSES_PER_MM : undefined;
+  };
+
+  // Helper to get axis speed in RPM (for rotation axes)
+  const getAxisSpeedRpm = (index: number): number | undefined => {
+    const speedHz = stateOptimistic.value?.data.axis_speeds[index];
+    return speedHz !== undefined ? speedHz * 60 / PULSES_PER_REV : undefined;
   };
 
   // Helper to get axis position in mm
@@ -338,6 +376,7 @@ function useBbmAutomatik(
 
     // Motor control actions
     setAxisSpeedMmS,
+    setAxisSpeedRpm,
     setAxisAcceleration,
     moveToPosition,
     stopAxis,
@@ -350,6 +389,7 @@ function useBbmAutomatik(
 
     // Motor helper functions
     getAxisSpeedMmS,
+    getAxisSpeedRpm,
     getAxisPositionMm,
     getAxisAcceleration,
 
@@ -359,6 +399,7 @@ function useBbmAutomatik(
     INPUT,
     OUTPUT,
     MAX_SPEED_MM_S,
+    MAX_SPEED_RPM,
     MAX_ACCELERATION_MM_S2,
     MIN_ACCELERATION_MM_S2,
     DEFAULT_ACCELERATION_MM_S2,

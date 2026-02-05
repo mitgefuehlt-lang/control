@@ -18,14 +18,17 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   const {
     state,
     setAxisSpeedMmS,
+    setAxisSpeedRpm,
     setAxisAcceleration,
     moveToPosition,
     stopAxis,
     getAxisSpeedMmS,
+    getAxisSpeedRpm,
     getAxisPositionMm,
     isDisabled,
     isLoading,
     MAX_SPEED_MM_S,
+    MAX_SPEED_RPM,
     MAX_ACCELERATION_MM_S2,
     MIN_ACCELERATION_MM_S2,
   } = useBbmAutomatikV2();
@@ -84,29 +87,35 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   };
 
   if (isRotation) {
-    // Simplified UI for rotation axis (Bürste)
+    // Simplified UI for rotation axis (Bürste) - uses RPM
+    const currentSpeedRpm = getAxisSpeedRpm(axisIndex) ?? 0;
+
+    const handleStartRpm = () => {
+      if (inputSpeed > 0) {
+        setAxisSpeedRpm(axisIndex, inputSpeed);
+      }
+    };
+
     return (
       <ControlCard title={`${axisName} (Rotation)`}>
         <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Label label="Drehzahl">
-              <EditValue
-                value={inputSpeed}
-                title="Drehzahl"
-                min={1}
-                max={100}
-                step={1}
-                renderValue={(v) => `${roundToDecimals(v, 0)} Hz`}
-                onChange={(speed) => setInputSpeed(speed)}
-              />
-            </Label>
-          </div>
+          <Label label="Drehzahl">
+            <EditValue
+              value={inputSpeed}
+              title="Drehzahl"
+              min={1}
+              max={MAX_SPEED_RPM}
+              step={1}
+              renderValue={(v) => `${roundToDecimals(v, 0)} RPM`}
+              onChange={(speed) => setInputSpeed(speed)}
+            />
+          </Label>
 
           <div className="flex gap-4">
             <TouchButton
               variant="default"
               icon="lu:Play"
-              onClick={handleStart}
+              onClick={handleStartRpm}
               disabled={isDisabled || isMotorCommanded}
               isLoading={isLoading}
               className="flex-1 h-12 bg-green-600 hover:bg-green-700"
@@ -126,6 +135,12 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             </TouchButton>
           </div>
 
+          {/* Current Status */}
+          <div className="pt-3 border-t text-sm">
+            <span className="text-muted-foreground">Drehzahl: </span>
+            <span className="font-mono">{roundToDecimals(currentSpeedRpm, 1)} RPM</span>
+          </div>
+
           {isMotorCommanded && (
             <div className="text-center text-green-600 font-semibold animate-pulse">
               Motor läuft
@@ -140,8 +155,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   return (
     <ControlCard title={`${axisName} (Linear)`}>
       <div className="flex flex-col gap-4">
-        {/* Inputs in 2x2 grid */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Inputs in single row - 4 columns with auto-fit */}
+        <div className="flex flex-wrap gap-3">
           <Label label="Geschwindigkeit">
             <EditValue
               value={inputSpeed}
