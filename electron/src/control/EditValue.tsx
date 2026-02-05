@@ -18,6 +18,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useFormValues } from "@/lib/useFormValues";
 import { TouchInput } from "@/components/touch/TouchInput";
 import { IconText } from "@/components/IconText";
+import { Button } from "@/components/ui/button";
 import { cva } from "class-variance-authority";
 import { z } from "zod";
 import { TouchNumpad } from "@/components/touch/TouchNumpad";
@@ -30,6 +31,7 @@ type Props = {
   icon?: IconName;
   defaultValue?: number;
   compact?: boolean;
+  resetPlacement?: "footer" | "header";
   min?: number;
   minSlider?: number; // Override the slider min value
   minLabel?: string;
@@ -96,6 +98,7 @@ export function EditValue({
   description,
   defaultValue,
   compact,
+  resetPlacement = "footer",
   step = 1,
   inverted,
   min,
@@ -477,6 +480,10 @@ export function EditValue({
   const valueGroupClass = compact
     ? "flex items-center gap-2 min-w-[10ch] justify-end tabular-nums"
     : "flex flex-row items-center gap-2";
+  const showResetInHeader =
+    defaultValue !== undefined && resetPlacement === "header";
+  const showResetInFooter =
+    defaultValue !== undefined && resetPlacement === "footer";
 
   return (
     <Popover
@@ -528,12 +535,27 @@ export function EditValue({
       {valueIsDefined && (
         <PopoverContent className="mx-8 flex w-auto rounded-2xl p-0 shadow-2xl">
           <div className="flex flex-col gap-6 p-6">
-            <div className="text-l flex flex-row items-center gap-2">
+            <div className="text-l flex w-full flex-row items-center gap-2">
               <Icon
                 name={unit ? getUnitIcon(unit) : "lu:Pencil"}
                 className="size-6"
               />
               <span>{title}</span>
+              {showResetInHeader && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto"
+                  onClick={() => {
+                    setValue(defaultValue!);
+                    handleSubmit();
+                  }}
+                  title="Reset"
+                >
+                  <Icon name="lu:RotateCcw" className="size-4" />
+                </Button>
+              )}
             </div>
             {description && <span>{description}</span>}
             <Separator />
@@ -645,7 +667,7 @@ export function EditValue({
                 )}
               </div>
 
-              {defaultValue !== undefined && (
+              {showResetInFooter && (
                 <TouchButton
                   variant="outline"
                   icon="lu:Undo2"

@@ -143,6 +143,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               value={inputSpeed}
               title="Drehzahl"
               defaultValue={DEFAULT_AXIS_INPUTS.speed}
+              resetPlacement="header"
               min={1}
               max={MAX_SPEED_RPM}
               step={1}
@@ -204,6 +205,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 title="Geschwindigkeit"
                 compact
                 defaultValue={DEFAULT_AXIS_INPUTS.speed}
+                resetPlacement="header"
                 min={1}
                 max={MAX_SPEED_MM_S}
                 step={1}
@@ -220,6 +222,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 title="Beschleunigung"
                 compact
                 defaultValue={DEFAULT_AXIS_INPUTS.acceleration}
+                resetPlacement="header"
                 min={MIN_ACCELERATION_MM_S2}
                 max={MAX_ACCELERATION_MM_S2}
                 step={10}
@@ -238,6 +241,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 title="Sollposition"
                 compact
                 defaultValue={DEFAULT_AXIS_INPUTS.position}
+                resetPlacement="header"
                 min={0}
                 max={10000}
                 step={10}
@@ -256,6 +260,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 title="Schrittweite"
                 compact
                 defaultValue={DEFAULT_AXIS_INPUTS.step}
+                resetPlacement="header"
                 min={1}
                 max={1000}
                 step={1}
