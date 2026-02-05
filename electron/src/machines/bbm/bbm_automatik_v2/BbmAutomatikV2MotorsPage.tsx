@@ -140,8 +140,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   return (
     <ControlCard title={`${axisName} (Linear)`}>
       <div className="flex flex-col gap-4">
-        {/* All 4 inputs in one row */}
-        <div className="grid grid-cols-4 gap-3">
+        {/* Inputs in 2x2 grid */}
+        <div className="grid grid-cols-2 gap-4">
           <Label label="Geschwindigkeit">
             <EditValue
               value={inputSpeed}
