@@ -132,13 +132,13 @@ pub struct BbmAutomatikV2 {
     pub axis_speeds: [i32; 4],           // Current speed (Hz) - used by software ramp
     pub axis_target_speeds: [i32; 4],    // Target speed (Hz) - what we want to reach
     pub axis_accelerations: [f32; 4],    // Acceleration in mm/s² per axis
-    pub axis_target_positions: [u32; 4], // Target position in pulses for position mode
+    pub axis_target_positions: [i32; 4], // Target position in pulses (signed for negative positions)
     pub axis_position_mode: [bool; 4],   // True if axis is in position mode (auto-stop at target)
     pub last_ramp_update: Instant,       // For software ramp timing
 
     // Homing state
     pub axis_homing_phase: [HomingPhase; 4],      // Current homing phase per axis
-    pub axis_homing_retract_target: [u32; 4],     // Target position for retract phase (pulses)
+    pub axis_homing_retract_target: [i32; 4],     // Target position for retract phase (pulses)
 }
 
 impl Machine for BbmAutomatikV2 {
@@ -186,10 +186,10 @@ impl BbmAutomatikV2 {
             input_states[i] = di.get_value().unwrap_or(false);
         }
 
-        // Read axis positions from PTO feedback
-        let mut positions = [0u32; 4];
+        // Read axis positions from PTO feedback (interpret u32 as i32 for negative positions)
+        let mut positions = [0i32; 4];
         for (i, axis) in self.axes.iter().enumerate() {
-            positions[i] = axis.get_position();
+            positions[i] = axis.get_position() as i32;
         }
 
         LiveValuesEvent {
@@ -321,15 +321,13 @@ impl BbmAutomatikV2 {
         }
     }
 
-    /// Move to a target position in mm
+    /// Move to a target position in mm (supports negative positions)
     /// This starts the motor and auto-stops when position is reached
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
         if index < self.axes.len() {
-            // Clamp to 0 minimum (no negative positions - would cause u32 overflow)
-            let clamped_mm = position_mm.max(0.0);
             // Round to nearest integer mm to avoid float accumulation errors
-            let target_pulses = (clamped_mm.round() * mechanics::PULSES_PER_MM) as u32;
-            let current_pulses = self.axes[index].get_position();
+            let target_pulses = (position_mm.round() * mechanics::PULSES_PER_MM) as i32;
+            let current_pulses = self.axes[index].get_position() as i32;
 
             // Determine direction based on current vs target position
             let speed_hz = if target_pulses > current_pulses {
@@ -345,16 +343,16 @@ impl BbmAutomatikV2 {
             // Set target speed (software ramp will handle acceleration)
             self.axis_target_speeds[index] = speed_hz;
 
-            // Set target counter value in hardware for auto-stop
+            // Set target counter value in hardware (cast back to u32 for hardware)
             let mut output = self.axes[index].get_output();
-            output.target_counter_value = target_pulses;
+            output.target_counter_value = target_pulses as u32;
             self.axes[index].set_output(output);
 
             self.emit_state();
             tracing::info!(
                 "[BbmAutomatikV2] Axis {} moving to {:.0} mm ({} pulses) at {:.1} mm/s",
                 index,
-                clamped_mm.round(),
+                position_mm.round(),
                 target_pulses,
                 speed_mm_s
             );
@@ -369,17 +367,13 @@ impl BbmAutomatikV2 {
         for i in 0..self.axis_speeds.len() {
             // Check if we're in position mode
             if self.axis_position_mode[i] {
-                let current_pos = self.axes[i].get_position();
+                let current_pos = self.axes[i].get_position() as i32;  // Interpret as signed
                 let target_pos = self.axis_target_positions[i];
                 let current_speed_hz = self.axis_speeds[i].abs() as f32;
                 let accel = self.axis_accelerations[i];
 
-                // Calculate remaining distance in pulses
-                let remaining_pulses = if target_pos > current_pos {
-                    target_pos - current_pos
-                } else {
-                    current_pos - target_pos
-                } as f32;
+                // Calculate remaining distance in pulses (absolute value)
+                let remaining_pulses = (target_pos - current_pos).abs() as f32;
 
                 // Calculate braking distance: s = v² / (2*a)
                 // Convert: speed is in Hz (pulses/s), accel is in mm/s²
@@ -549,8 +543,8 @@ impl BbmAutomatikV2 {
                         self.axes[i].set_frequency(0);
 
                         // Calculate retract target: current position + 2mm
-                        let current_pos = self.axes[i].get_position();
-                        let retract_pulses = (homing::RETRACT_DISTANCE_MM * mechanics::PULSES_PER_MM) as u32;
+                        let current_pos = self.axes[i].get_position() as i32;
+                        let retract_pulses = (homing::RETRACT_DISTANCE_MM * mechanics::PULSES_PER_MM) as i32;
                         self.axis_homing_retract_target[i] = current_pos + retract_pulses;
 
                         // Start Phase 2: Retract
@@ -572,7 +566,7 @@ impl BbmAutomatikV2 {
 
                 HomingPhase::Retracting => {
                     // Check if we reached the retract target
-                    let current_pos = self.axes[i].get_position();
+                    let current_pos = self.axes[i].get_position() as i32;
                     if current_pos >= self.axis_homing_retract_target[i] {
                         // Stop the axis
                         self.axis_speeds[i] = 0;

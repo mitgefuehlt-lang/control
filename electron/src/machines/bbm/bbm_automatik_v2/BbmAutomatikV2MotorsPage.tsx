@@ -138,8 +138,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   };
 
   const handleJogMinus = () => {
-    // Round to avoid float accumulation errors, minimum 0
-    const targetPos = Math.max(0, Math.round(currentPosition - inputStepSize));
+    // Round to avoid float accumulation errors (negative positions allowed)
+    const targetPos = Math.round(currentPosition - inputStepSize);
     setError(null);
     setAxisAcceleration(axisIndex, inputAcceleration);
     moveToPosition(axisIndex, targetPos, inputSpeed);

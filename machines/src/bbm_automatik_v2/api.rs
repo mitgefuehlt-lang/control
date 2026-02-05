@@ -17,7 +17,7 @@ pub struct StateEvent {
     pub axis_speeds: [i32; 4],
     pub axis_target_speeds: [i32; 4],
     pub axis_accelerations: [f32; 4],
-    pub axis_target_positions: [u32; 4],
+    pub axis_target_positions: [i32; 4],  // Signed to support negative positions
     pub axis_position_mode: [bool; 4],
     pub axis_homing_active: [bool; 4],
 }
@@ -32,7 +32,7 @@ impl StateEvent {
 #[derive(Serialize, Debug, Clone)]
 pub struct LiveValuesEvent {
     pub input_states: [bool; 8],
-    pub axis_positions: [u32; 4],
+    pub axis_positions: [i32; 4],  // Signed to support negative positions
 }
 
 impl LiveValuesEvent {
