@@ -377,7 +377,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
 
           <TouchButton
             variant="default"
-            icon="lu:Home"
+            icon="lu:House"
             onClick={handleHoming}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
