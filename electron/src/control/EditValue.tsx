@@ -468,7 +468,7 @@ export function EditValue({
 
   const valueIsDefined = value !== undefined && value !== null;
   const sizeVariant = compact ? "compact" : "default";
-  const valueTextClass = compact ? "text-xl tracking-tight" : "text-4xl";
+  const valueTextClass = compact ? "text-2xl tracking-tight" : "text-4xl";
   const iconSizeClass = "size-6";
   const separatorMarginClass = compact ? "mx-2" : "mx-4";
 

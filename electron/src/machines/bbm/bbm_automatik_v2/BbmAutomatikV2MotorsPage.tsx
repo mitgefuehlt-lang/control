@@ -166,7 +166,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 min={1}
                 max={MAX_SPEED_MM_S}
                 step={1}
-                renderValue={(v) => `${roundToDecimals(v, 0)}mm/s`}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
                 onChange={(speed) => setInputSpeed(speed)}
               />
             </Label>
@@ -181,7 +181,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 min={MIN_ACCELERATION_MM_S2}
                 max={MAX_ACCELERATION_MM_S2}
                 step={10}
-                renderValue={(v) => `${roundToDecimals(v, 0)}mm/s^2`}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s^2`}
                 onChange={(accel) => setInputAcceleration(accel)}
               />
             </Label>
@@ -196,7 +196,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 min={0}
                 max={10000}
                 step={10}
-                renderValue={(v) => `${roundToDecimals(v, 0)}mm`}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
                 onChange={(pos) => setInputPosition(pos)}
               />
             </Label>
@@ -211,7 +211,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 min={1}
                 max={1000}
                 step={1}
-                renderValue={(v) => `${roundToDecimals(v, 0)}mm`}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
                 onChange={(step) => setInputStepSize(step)}
               />
             </Label>
