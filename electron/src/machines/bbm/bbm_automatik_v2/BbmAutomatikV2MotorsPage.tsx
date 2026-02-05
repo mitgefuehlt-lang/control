@@ -7,8 +7,6 @@ import { EditValue } from "@/control/EditValue";
 import { Label } from "@/control/Label";
 import { roundToDecimals } from "@/lib/decimal";
 import { create } from "zustand";
-import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/Icon";
 
 interface AxisControlProps {
   axisIndex: number;
@@ -28,7 +26,6 @@ type AxisInputState = {
 type MotorsUiState = {
   axes: Record<number, AxisInputState>;
   setAxisValue: (axis: number, key: AxisInputKey, value: number) => void;
-  resetAxisValue: (axis: number, key: AxisInputKey) => void;
 };
 
 const DEFAULT_AXIS_INPUTS: AxisInputState = {
@@ -50,32 +47,7 @@ const useBbmMotorsUiStore = create<MotorsUiState>((set) => ({
         },
       };
     }),
-  resetAxisValue: (axis, key) =>
-    set((state) => {
-      const current = state.axes[axis] ?? DEFAULT_AXIS_INPUTS;
-      return {
-        axes: {
-          ...state.axes,
-          [axis]: { ...current, [key]: DEFAULT_AXIS_INPUTS[key] },
-        },
-      };
-    }),
 }));
-
-function ResetCornerButton({ onClick }: { onClick: () => void }) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      onClick={onClick}
-      className="absolute right-1 top-1 h-7 w-7 rounded-full"
-      title="Reset"
-    >
-      <Icon name="lu:RotateCcw" className="size-4" />
-    </Button>
-  );
-}
 
 function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlProps) {
   const {
@@ -100,7 +72,6 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     (store) => store.axes[axisIndex] ?? DEFAULT_AXIS_INPUTS,
   );
   const setAxisValue = useBbmMotorsUiStore((store) => store.setAxisValue);
-  const resetAxisValue = useBbmMotorsUiStore((store) => store.resetAxisValue);
 
   const inputSpeed = axisInputs.speed;
   const inputAcceleration = axisInputs.acceleration;
@@ -168,20 +139,16 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
       <ControlCard title={`${axisName} (Rotation)`}>
         <div className="flex flex-col gap-4">
           <Label label="Drehzahl">
-            <div className="relative">
-              <EditValue
-                value={inputSpeed}
-                title="Drehzahl"
-                min={1}
-                max={MAX_SPEED_RPM}
-                step={1}
-                renderValue={(v) => `${roundToDecimals(v, 0)} RPM`}
-                onChange={(speed) => setAxisValue(axisIndex, "speed", speed)}
-              />
-              <ResetCornerButton
-                onClick={() => resetAxisValue(axisIndex, "speed")}
-              />
-            </div>
+            <EditValue
+              value={inputSpeed}
+              title="Drehzahl"
+              defaultValue={DEFAULT_AXIS_INPUTS.speed}
+              min={1}
+              max={MAX_SPEED_RPM}
+              step={1}
+              renderValue={(v) => `${roundToDecimals(v, 0)} RPM`}
+              onChange={(speed) => setAxisValue(axisIndex, "speed", speed)}
+            />
           </Label>
 
           <div className="flex gap-4">
@@ -232,85 +199,69 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
         <div className="grid grid-cols-4 gap-1">
           <div className="min-w-0">
             <Label label="Geschw.">
-              <div className="relative">
-                <EditValue
-                  value={inputSpeed}
-                  title="Geschwindigkeit"
-                  compact
-                  min={1}
-                  max={MAX_SPEED_MM_S}
-                  step={1}
-                  renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
-                  onChange={(speed) => setAxisValue(axisIndex, "speed", speed)}
-                />
-                <ResetCornerButton
-                  onClick={() => resetAxisValue(axisIndex, "speed")}
-                />
-              </div>
+              <EditValue
+                value={inputSpeed}
+                title="Geschwindigkeit"
+                compact
+                defaultValue={DEFAULT_AXIS_INPUTS.speed}
+                min={1}
+                max={MAX_SPEED_MM_S}
+                step={1}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s`}
+                onChange={(speed) => setAxisValue(axisIndex, "speed", speed)}
+              />
             </Label>
           </div>
 
           <div className="min-w-0">
             <Label label="Beschl.">
-              <div className="relative">
-                <EditValue
-                  value={inputAcceleration}
-                  title="Beschleunigung"
-                  compact
-                  min={MIN_ACCELERATION_MM_S2}
-                  max={MAX_ACCELERATION_MM_S2}
-                  step={10}
-                  renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
-                  onChange={(accel) =>
-                    setAxisValue(axisIndex, "acceleration", accel)
-                  }
-                />
-                <ResetCornerButton
-                  onClick={() => resetAxisValue(axisIndex, "acceleration")}
-                />
-              </div>
+              <EditValue
+                value={inputAcceleration}
+                title="Beschleunigung"
+                compact
+                defaultValue={DEFAULT_AXIS_INPUTS.acceleration}
+                min={MIN_ACCELERATION_MM_S2}
+                max={MAX_ACCELERATION_MM_S2}
+                step={10}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
+                onChange={(accel) =>
+                  setAxisValue(axisIndex, "acceleration", accel)
+                }
+              />
             </Label>
           </div>
 
           <div className="min-w-0">
             <Label label="Sollpos.">
-              <div className="relative">
-                <EditValue
-                  value={inputPosition}
-                  title="Sollposition"
-                  compact
-                  min={0}
-                  max={10000}
-                  step={10}
-                  renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
-                  onChange={(pos) =>
-                    setAxisValue(axisIndex, "position", pos)
-                  }
-                />
-                <ResetCornerButton
-                  onClick={() => resetAxisValue(axisIndex, "position")}
-                />
-              </div>
+              <EditValue
+                value={inputPosition}
+                title="Sollposition"
+                compact
+                defaultValue={DEFAULT_AXIS_INPUTS.position}
+                min={0}
+                max={10000}
+                step={10}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
+                onChange={(pos) =>
+                  setAxisValue(axisIndex, "position", pos)
+                }
+              />
             </Label>
           </div>
 
           <div className="min-w-0">
             <Label label="Schritt">
-              <div className="relative">
-                <EditValue
-                  value={inputStepSize}
-                  title="Schrittweite"
-                  compact
-                  min={1}
-                  max={1000}
-                  step={1}
-                  renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
-                  onChange={(step) => setAxisValue(axisIndex, "step", step)}
-                />
-                <ResetCornerButton
-                  onClick={() => resetAxisValue(axisIndex, "step")}
-                />
-              </div>
+              <EditValue
+                value={inputStepSize}
+                title="Schrittweite"
+                compact
+                defaultValue={DEFAULT_AXIS_INPUTS.step}
+                min={1}
+                max={1000}
+                step={1}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
+                onChange={(step) => setAxisValue(axisIndex, "step", step)}
+              />
             </Label>
           </div>
         </div>
