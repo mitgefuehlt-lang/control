@@ -17,13 +17,12 @@ pub mod new;
 use crate::bbm_automatik_v2::api::BbmAutomatikV2Namespace;
 
 /// Device Roles for BbmAutomatikV2
-/// Hardware: 1x EL2522 (2 Achsen), EL1008, EL2008
-/// TODO: Später 2x EL2522 für 4 Achsen
+/// Hardware: 2x EL2522 (4 Achsen), EL1008, EL2008
 pub mod roles {
     pub const DIGITAL_INPUT: u16 = 1;  // EL1008 - 8x DI (3x Referenzschalter, 2x Türsensoren)
     pub const DIGITAL_OUTPUT: u16 = 2; // EL2008 - 8x DO (1x Rüttelmotor, 3x Ampel)
     pub const PTO_1: u16 = 3;          // EL2522 #1 - Kanal 1: MT, Kanal 2: Schieber
-    // pub const PTO_2: u16 = 4;       // EL2522 #2 - Kanal 1: Drücker, Kanal 2: Bürste (TODO: später)
+    pub const PTO_2: u16 = 4;          // EL2522 #2 - Kanal 1: Drücker, Kanal 2: Bürste
 }
 
 /// Axis indices
