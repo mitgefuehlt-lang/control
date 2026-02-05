@@ -144,6 +144,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               title="Drehzahl"
               defaultValue={DEFAULT_AXIS_INPUTS.speed}
               resetPlacement="header"
+              compact
               min={1}
               max={MAX_SPEED_RPM}
               step={1}

@@ -30,7 +30,7 @@ export const AXIS = {
 } as const;
 
 // Axis names for display
-export const AXIS_NAMES = ["MT", "Schieber", "Drücker", "Bürste"] as const;
+export const AXIS_NAMES = ["Transporter", "Schieber", "Drücker", "Bürste"] as const;
 
 // Digital input indices
 export const INPUT = {
