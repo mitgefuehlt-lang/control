@@ -378,13 +378,17 @@ impl BbmAutomatikV2 {
                 };
 
                 if reached {
-                    // Stop the motor
+                    // IMMEDIATE stop - no ramping for position mode
                     self.axis_target_speeds[i] = 0;
+                    self.axis_speeds[i] = 0;
+                    self.axes[i].set_frequency(0);
                     self.axis_position_mode[i] = false;
+                    changed = true;
                     tracing::info!(
-                        "[BbmAutomatikV2] Axis {} reached target position {} pulses",
+                        "[BbmAutomatikV2] Axis {} reached target position {} pulses (current: {})",
                         i,
-                        target_pos
+                        target_pos,
+                        current_pos
                     );
                 }
             }
