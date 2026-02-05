@@ -181,7 +181,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                 min={MIN_ACCELERATION_MM_S2}
                 max={MAX_ACCELERATION_MM_S2}
                 step={10}
-                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s^2`}
+                renderValue={(v) => `${roundToDecimals(v, 0)} mm/s²`}
                 onChange={(accel) => setInputAcceleration(accel)}
               />
             </Label>

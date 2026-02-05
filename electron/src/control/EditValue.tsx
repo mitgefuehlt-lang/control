@@ -471,6 +471,12 @@ export function EditValue({
   const valueTextClass = compact ? "text-2xl tracking-tight" : "text-4xl";
   const iconSizeClass = "size-6";
   const separatorMarginClass = compact ? "mx-2" : "mx-4";
+  const contentRowClass = compact
+    ? "flex w-full items-center justify-between"
+    : "flex flex-row items-center gap-2";
+  const valueGroupClass = compact
+    ? "flex items-center gap-2 min-w-[10ch] justify-end tabular-nums"
+    : "flex flex-row items-center gap-2";
 
   return (
     <Popover
@@ -490,17 +496,33 @@ export function EditValue({
           variant="outline"
           disabled={!valueIsDefined}
         >
-          <div className="flex flex-row items-center gap-2">
-            <span className={`font-mono ${valueTextClass} font-bold whitespace-nowrap`}>
+          <div className={contentRowClass}>
+            <div className={valueGroupClass}>
+              <span
+                className={`font-mono ${valueTextClass} font-bold whitespace-nowrap`}
+              >
               {renderValueToReactNode(value, unit, renderValue)}
-            </span>
-            <span>{renderUnitSymbol(unit)}</span>
+              </span>
+              <span>{renderUnitSymbol(unit)}</span>
+            </div>
+            {compact ? (
+              <div className="flex items-center">
+                <div
+                  aria-hidden
+                  className={`${separatorMarginClass} h-8 w-px bg-foreground/40`}
+                />
+                <Icon name="lu:Pencil" className={iconSizeClass} />
+              </div>
+            ) : (
+              <>
+                <div
+                  aria-hidden
+                  className={`${separatorMarginClass} h-8 w-px bg-foreground/40`}
+                />
+                <Icon name="lu:Pencil" className={iconSizeClass} />
+              </>
+            )}
           </div>
-          <div
-            aria-hidden
-            className={`${separatorMarginClass} h-8 w-px bg-foreground/40`}
-          />
-          <Icon name="lu:Pencil" className={iconSizeClass} />
         </TouchButton>
       </PopoverTrigger>
       {valueIsDefined && (
