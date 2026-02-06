@@ -107,7 +107,6 @@ pub mod mechanics {
     }
 }
 
-#[derive(Debug)]
 pub struct BbmAutomatikV2 {
     pub api_receiver: Receiver<MachineMessage>,
     pub api_sender: Sender<MachineMessage>,
@@ -129,19 +128,25 @@ pub struct BbmAutomatikV2 {
     // Axis 2: Drücker (EL2522 #2, Ch1)
     // Axis 3: Bürste (EL2522 #2, Ch2)
     pub axes: [PulseTrainOutput; 4],
-    pub axis_speeds: [i32; 4],           // Current speed (Hz) - used by software ramp
-    pub axis_target_speeds: [i32; 4],    // Target speed (Hz) - what we want to reach
-    pub axis_accelerations: [f32; 4],    // Acceleration in mm/s² per axis
-    pub axis_target_positions: [i32; 4], // Target position in pulses (signed for negative positions)
-    pub axis_position_mode: [bool; 4],   // True if axis is in position mode (auto-stop at target)
+    pub axis_speeds: [i32; 4],
+    pub axis_target_speeds: [i32; 4],
+    pub axis_accelerations: [f32; 4],
+    pub axis_target_positions: [i32; 4],
+    pub axis_position_mode: [bool; 4],
 
     // Hardware ramp control
-    pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,  // SDO write callback for dynamic acceleration
-    pub pto_subdevice_indices: [usize; 2],             // EL2522 #1 and #2 subdevice indices
+    pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,
+    pub pto_subdevice_indices: [usize; 2],
 
     // Homing state
-    pub axis_homing_phase: [HomingPhase; 4],      // Current homing phase per axis
-    pub axis_homing_retract_target: [i32; 4],     // Target position for retract phase (pulses)
+    pub axis_homing_phase: [HomingPhase; 4],
+    pub axis_homing_retract_target: [i32; 4],
+}
+
+impl std::fmt::Debug for BbmAutomatikV2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BbmAutomatikV2")
+    }
 }
 
 impl Machine for BbmAutomatikV2 {

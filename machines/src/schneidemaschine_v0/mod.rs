@@ -48,7 +48,6 @@ pub mod mechanics {
     }
 }
 
-#[derive(Debug)]
 pub struct SchneidemaschineV0 {
     pub api_receiver: Receiver<MachineMessage>,
     pub api_sender: Sender<MachineMessage>,
@@ -66,15 +65,21 @@ pub struct SchneidemaschineV0 {
 
     // Pulse Train Outputs (1x EL2522 = 2 channels)
     pub axes: [PulseTrainOutput; 2],
-    pub axis_speeds: [i32; 2],           // Current speed (Hz) - used by software ramp
-    pub axis_target_speeds: [i32; 2],    // Target speed (Hz) - what we want to reach
-    pub axis_accelerations: [f32; 2],    // Acceleration in mm/s² per axis
-    pub axis_target_positions: [i32; 2],  // Target position in pulses for position mode (signed)
-    pub axis_position_mode: [bool; 2],   // True if axis is in position mode (auto-stop at target)
+    pub axis_speeds: [i32; 2],
+    pub axis_target_speeds: [i32; 2],
+    pub axis_accelerations: [f32; 2],
+    pub axis_target_positions: [i32; 2],
+    pub axis_position_mode: [bool; 2],
 
     // Hardware ramp control
-    pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,  // SDO write callback for dynamic acceleration
-    pub pto_subdevice_index: usize,                    // EL2522 subdevice index
+    pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,
+    pub pto_subdevice_index: usize,
+}
+
+impl std::fmt::Debug for SchneidemaschineV0 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SchneidemaschineV0")
+    }
 }
 
 impl Machine for SchneidemaschineV0 {

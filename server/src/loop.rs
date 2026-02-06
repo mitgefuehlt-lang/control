@@ -112,13 +112,19 @@ pub fn start_loop_thread(
                             .machines
                             .retain(|m| m.get_machine_identification_unique() != unique_id);
                     }
-                    HotThreadMessage::SdoWriteU16 { subdevice_index, index, subindex, value } => {
+                    HotThreadMessage::SdoWriteU16 {
+                        subdevice_index,
+                        index,
+                        subindex,
+                        value,
+                    } => {
                         if let Some(ethercat_setup) = &rt_loop_inputs.ethercat_setup {
-                            if let Ok(subdevice) = ethercat_setup.group.subdevice(
-                                &ethercat_setup.maindevice,
-                                subdevice_index,
-                            ) {
-                                let _res = smol::block_on(subdevice.sdo_write(index, subindex, value));
+                            if let Ok(subdevice) = ethercat_setup
+                                .group
+                                .subdevice(&ethercat_setup.maindevice, subdevice_index)
+                            {
+                                let _res =
+                                    smol::block_on(subdevice.sdo_write(index, subindex, value));
                             }
                         }
                     }
