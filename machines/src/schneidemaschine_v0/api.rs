@@ -17,7 +17,7 @@ pub struct StateEvent {
     pub axis_speeds: [i32; 2],
     pub axis_target_speeds: [i32; 2],
     pub axis_accelerations: [f32; 2],
-    pub axis_target_positions: [u32; 2],
+    pub axis_target_positions: [i32; 2],
     pub axis_position_mode: [bool; 2],
 }
 

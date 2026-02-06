@@ -89,7 +89,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
             // ========== Pulse Train Outputs #1 (1x EL2522) ==========
             // Channel 1: MT (Magazin Transporter) - Linear
             // Channel 2: Schieber - Linear
-            let (el2522_1, subdevice_1) = get_ethercat_device::<EL2522>(
+            let (el2522_1, subdevice_1, subdevice_index_1) = get_ethercat_device::<EL2522>(
                 hardware,
                 params,
                 roles::PTO_1,
@@ -97,26 +97,30 @@ impl MachineNewTrait for BbmAutomatikV2 {
             )
             .await?;
 
-            // Configure EL2522 #1 for both channels
+            // Configure EL2522 #1 for both channels - Hardware ramp enabled
             let el2522_1_config = EL2522Configuration {
                 channel1_configuration: EL2522ChannelConfiguration {
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    ramp_function_active: false,
+                    ramp_function_active: true,
                     direct_input_mode: true,
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: true,
                     watchdog_timer_deactive: true,
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
                 channel2_configuration: EL2522ChannelConfiguration {
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    ramp_function_active: false,
+                    ramp_function_active: true,
                     direct_input_mode: true,
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: true,
                     watchdog_timer_deactive: true,
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
                 ..Default::default()
@@ -135,7 +139,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
             // ========== Pulse Train Outputs #2 (1x EL2522) ==========
             // Channel 1: Drücker - Linear
             // Channel 2: Bürste - Rotation
-            let (el2522_2, subdevice_2) = get_ethercat_device::<EL2522>(
+            let (el2522_2, subdevice_2, subdevice_index_2) = get_ethercat_device::<EL2522>(
                 hardware,
                 params,
                 roles::PTO_2,
@@ -143,28 +147,32 @@ impl MachineNewTrait for BbmAutomatikV2 {
             )
             .await?;
 
-            // Configure EL2522 #2
+            // Configure EL2522 #2 - Hardware ramp enabled
             let el2522_2_config = EL2522Configuration {
                 // Channel 1: Drücker (Linear)
                 channel1_configuration: EL2522ChannelConfiguration {
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    ramp_function_active: false,
+                    ramp_function_active: true,
                     direct_input_mode: true,
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: true,
                     watchdog_timer_deactive: true,
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
                 // Channel 2: Bürste (Rotation) - no position control needed
                 channel2_configuration: EL2522ChannelConfiguration {
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    ramp_function_active: false,
+                    ramp_function_active: true,
                     direct_input_mode: true,
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: false, // No position control for rotation
                     watchdog_timer_deactive: true,
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
                 ..Default::default()
@@ -207,7 +215,8 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 axis_accelerations: [100.0; 4],  // Default: 100 mm/s²
                 axis_target_positions: [0; 4],
                 axis_position_mode: [false; 4],
-                last_ramp_update: Instant::now(),
+                sdo_write_u16: params.sdo_write_u16.clone(),
+                pto_subdevice_indices: [subdevice_index_1, subdevice_index_2],
                 axis_homing_phase: [
                     crate::bbm_automatik_v2::HomingPhase::Idle,
                     crate::bbm_automatik_v2::HomingPhase::Idle,

@@ -72,6 +72,10 @@ pub enum AsyncThreadMessage {
     DisconnectMachines(CrossConnection),
 }
 
+/// Callback type for runtime SDO writes to EtherCAT devices
+/// Parameters: (subdevice_index, sdo_index, subindex, value)
+pub type SdoWriteU16Fn = Arc<dyn Fn(usize, u16, u8, u16) + Send + Sync>;
+
 pub struct MachineNewParams<
     'maindevice,
     'subdevices,
@@ -97,6 +101,7 @@ pub struct MachineNewParams<
     pub socket_queue_tx: Sender<(SocketRef, Arc<GenericEvent>)>,
     pub main_thread_channel: Option<Sender<AsyncThreadMessage>>,
     pub namespace: Option<Namespace>,
+    pub sdo_write_u16: Option<SdoWriteU16Fn>,
 }
 
 impl MachineNewParams<'_, '_, '_, '_, '_, '_, '_> {
@@ -382,6 +387,7 @@ async fn get_ethercat_device<
     (
         Arc<RwLock<T>>,
         &'subdevices SubDeviceRef<'subdevices, &'subdevices SubDevice>,
+        usize,
     ),
     anyhow::Error,
 >
@@ -420,7 +426,7 @@ where
         device_guard.set_used(true);
     }
 
-    Ok((device, subdevice))
+    Ok((device, subdevice, subdevice_index))
 }
 
 #[derive(Debug)]

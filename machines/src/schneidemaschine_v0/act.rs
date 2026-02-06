@@ -12,17 +12,10 @@ impl MachineAct for SchneidemaschineV0 {
             self.act_machine_message(msg);
         }
 
-        // Software ramp: update speeds towards targets based on acceleration
-        let dt = now.duration_since(self.last_ramp_update).as_secs_f32();
-        if dt > 0.001 {
-            // At least 1ms passed
-            let speed_changed = self.update_software_ramp(dt);
-            self.last_ramp_update = now;
-
-            // Emit state when speed changes during ramping
-            if speed_changed {
-                self.emit_state();
-            }
+        // Hardware monitor: watch hardware status, no timing needed
+        let status_changed = self.update_hardware_monitor();
+        if status_changed {
+            self.emit_state();
         }
 
         // Emit state and live values at ~30 Hz
