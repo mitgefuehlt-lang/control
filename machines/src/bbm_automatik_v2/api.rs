@@ -3,7 +3,7 @@ use crate::{MachineApi, MachineMessage};
 use control_core::socketio::{
     event::{Event, GenericEvent},
     namespace::{
-        CacheFn, CacheableEvents, Namespace, NamespaceCacheingLogic, cache_first_and_last_event,
+        cache_first_and_last_event, CacheFn, CacheableEvents, Namespace, NamespaceCacheingLogic,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ pub struct StateEvent {
     pub axis_speeds: [i32; 4],
     pub axis_target_speeds: [i32; 4],
     pub axis_accelerations: [f32; 4],
-    pub axis_target_positions: [i32; 4],  // Signed to support negative positions
+    pub axis_target_positions: [i32; 4], // Signed to support negative positions
     pub axis_position_mode: [bool; 4],
     pub axis_homing_active: [bool; 4],
 }
@@ -32,7 +32,7 @@ impl StateEvent {
 #[derive(Serialize, Debug, Clone)]
 pub struct LiveValuesEvent {
     pub input_states: [bool; 8],
-    pub axis_positions: [i32; 4],  // Signed to support negative positions
+    pub axis_positions: [i32; 4], // Signed to support negative positions
 }
 
 impl LiveValuesEvent {
@@ -64,7 +64,11 @@ pub enum Mutation {
     /// Set acceleration for a single axis (in mm/s²)
     SetAxisAcceleration { index: usize, accel_mm_s2: f32 },
     /// Move axis to a target position (in mm) with given speed (mm/s)
-    MoveToPosition { index: usize, position_mm: f32, speed_mm_s: f32 },
+    MoveToPosition {
+        index: usize,
+        position_mm: f32,
+        speed_mm_s: f32,
+    },
     /// Stop a single axis
     StopAxis { index: usize },
     /// Stop all axes
@@ -121,15 +125,15 @@ impl MachineApi for BbmAutomatikV2 {
             Mutation::SetAxisSpeedMmS { index, speed_mm_s } => {
                 self.set_axis_speed_mm_s(index, speed_mm_s)
             }
-            Mutation::SetAxisSpeedRpm { index, rpm } => {
-                self.set_axis_speed_rpm(index, rpm)
-            }
+            Mutation::SetAxisSpeedRpm { index, rpm } => self.set_axis_speed_rpm(index, rpm),
             Mutation::SetAxisAcceleration { index, accel_mm_s2 } => {
                 self.set_axis_acceleration(index, accel_mm_s2)
             }
-            Mutation::MoveToPosition { index, position_mm, speed_mm_s } => {
-                self.move_to_position_mm(index, position_mm, speed_mm_s)
-            }
+            Mutation::MoveToPosition {
+                index,
+                position_mm,
+                speed_mm_s,
+            } => self.move_to_position_mm(index, position_mm, speed_mm_s),
             Mutation::StopAxis { index } => self.stop_axis(index),
             Mutation::StopAllAxes => self.stop_all_axes(),
             Mutation::SetRuettelmotor { on } => self.set_ruettelmotor(on),

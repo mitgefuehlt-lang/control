@@ -3,7 +3,7 @@ use crate::{MachineApi, MachineMessage};
 use control_core::socketio::{
     event::{Event, GenericEvent},
     namespace::{
-        CacheFn, CacheableEvents, Namespace, NamespaceCacheingLogic, cache_first_and_last_event,
+        cache_first_and_last_event, CacheFn, CacheableEvents, Namespace, NamespaceCacheingLogic,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -94,7 +94,11 @@ pub enum Mutation {
     /// Set acceleration for a single axis (in mm/s²)
     SetAxisAcceleration { index: usize, accel_mm_s2: f32 },
     /// Move axis to a target position (in mm) with given speed (mm/s)
-    MoveToPosition { index: usize, position_mm: f32, speed_mm_s: f32 },
+    MoveToPosition {
+        index: usize,
+        position_mm: f32,
+        speed_mm_s: f32,
+    },
     /// Stop all axes
     StopAllAxes,
     /// Request debug info for a PTO channel (emits DebugPtoEvent)
@@ -149,9 +153,11 @@ impl MachineApi for SchneidemaschineV0 {
             Mutation::SetAxisAcceleration { index, accel_mm_s2 } => {
                 self.set_axis_acceleration(index, accel_mm_s2)
             }
-            Mutation::MoveToPosition { index, position_mm, speed_mm_s } => {
-                self.move_to_position_mm(index, position_mm, speed_mm_s)
-            }
+            Mutation::MoveToPosition {
+                index,
+                position_mm,
+                speed_mm_s,
+            } => self.move_to_position_mm(index, position_mm, speed_mm_s),
             Mutation::StopAllAxes => self.stop_all_axes(),
             Mutation::DebugPto { index } => self.emit_debug_pto(index),
             Mutation::DebugLogAll => self.log_debug_all(),

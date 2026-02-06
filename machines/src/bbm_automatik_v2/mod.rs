@@ -1,7 +1,5 @@
+use crate::bbm_automatik_v2::api::{BbmAutomatikV2Events, LiveValuesEvent, StateEvent};
 use crate::machine_identification::{MachineIdentification, MachineIdentificationUnique};
-use crate::bbm_automatik_v2::api::{
-    LiveValuesEvent, BbmAutomatikV2Events, StateEvent,
-};
 use crate::{AsyncThreadMessage, Machine, MachineMessage, BBM_AUTOMATIK_V2, VENDOR_QITECH};
 use control_core::socketio::namespace::NamespaceCacheingLogic;
 use ethercat_hal::io::digital_input::DigitalInput;
@@ -19,35 +17,35 @@ use crate::bbm_automatik_v2::api::BbmAutomatikV2Namespace;
 /// Device Roles for BbmAutomatikV2
 /// Hardware: 2x EL2522 (4 Achsen), EL1008, EL2008
 pub mod roles {
-    pub const DIGITAL_INPUT: u16 = 1;  // EL1008 - 8x DI (3x Referenzschalter, 2x Türsensoren)
+    pub const DIGITAL_INPUT: u16 = 1; // EL1008 - 8x DI (3x Referenzschalter, 2x Türsensoren)
     pub const DIGITAL_OUTPUT: u16 = 2; // EL2008 - 8x DO (1x Rüttelmotor, 3x Ampel)
-    pub const PTO_1: u16 = 3;          // EL2522 #1 - Kanal 1: MT, Kanal 2: Schieber
-    pub const PTO_2: u16 = 4;          // EL2522 #2 - Kanal 1: Drücker, Kanal 2: Bürste
+    pub const PTO_1: u16 = 3; // EL2522 #1 - Kanal 1: MT, Kanal 2: Schieber
+    pub const PTO_2: u16 = 4; // EL2522 #2 - Kanal 1: Drücker, Kanal 2: Bürste
 }
 
 /// Axis indices
 pub mod axes {
-    pub const MT: usize = 0;         // Magazin Transporter (Linear)
-    pub const SCHIEBER: usize = 1;   // Schieber (Linear)
-    pub const DRUECKER: usize = 2;   // Drücker (Linear)
-    pub const BUERSTE: usize = 3;    // Bürste (Rotation)
+    pub const MT: usize = 0; // Magazin Transporter (Linear)
+    pub const SCHIEBER: usize = 1; // Schieber (Linear)
+    pub const DRUECKER: usize = 2; // Drücker (Linear)
+    pub const BUERSTE: usize = 3; // Bürste (Rotation)
 }
 
 /// Digital input indices (0-based array index, DI1 = index 0)
 pub mod inputs {
-    pub const REF_MT: usize = 0;        // Referenzschalter Transporter (DI1 = index 0)
-    pub const REF_SCHIEBER: usize = 1;  // Referenzschalter Schieber (DI2 = index 1)
-    pub const REF_DRUECKER: usize = 2;  // Referenzschalter Drücker (DI3 = index 2)
-    pub const TUER_1: usize = 3;        // Türsensor 1 (DI4 = index 3)
-    pub const TUER_2: usize = 4;        // Türsensor 2 (DI5 = index 4)
+    pub const REF_MT: usize = 0; // Referenzschalter Transporter (DI1 = index 0)
+    pub const REF_SCHIEBER: usize = 1; // Referenzschalter Schieber (DI2 = index 1)
+    pub const REF_DRUECKER: usize = 2; // Referenzschalter Drücker (DI3 = index 2)
+    pub const TUER_1: usize = 3; // Türsensor 1 (DI4 = index 3)
+    pub const TUER_2: usize = 4; // Türsensor 2 (DI5 = index 4)
 }
 
 /// Digital output indices
 pub mod outputs {
-    pub const RUETTELMOTOR: usize = 0;  // Rüttelmotor
-    pub const AMPEL_ROT: usize = 1;     // Ampel Rot
-    pub const AMPEL_GELB: usize = 2;    // Ampel Gelb
-    pub const AMPEL_GRUEN: usize = 3;   // Ampel Grün
+    pub const RUETTELMOTOR: usize = 0; // Rüttelmotor
+    pub const AMPEL_ROT: usize = 1; // Ampel Rot
+    pub const AMPEL_GELB: usize = 2; // Ampel Gelb
+    pub const AMPEL_GRUEN: usize = 3; // Ampel Grün
 }
 
 /// Homing configuration
@@ -215,8 +213,7 @@ impl BbmAutomatikV2 {
     /// Emit live values to UI
     pub fn emit_live_values(&mut self) {
         let event = self.get_live_values().build();
-        self.namespace
-            .emit(BbmAutomatikV2Events::LiveValues(event));
+        self.namespace.emit(BbmAutomatikV2Events::LiveValues(event));
     }
 
     /// Set a digital output
@@ -354,7 +351,11 @@ impl BbmAutomatikV2 {
 
             // Determine direction
             let current_pulses = self.axes[index].get_position() as i32;
-            let direction = if target_pulses > current_pulses { 1 } else { -1 };
+            let direction = if target_pulses > current_pulses {
+                1
+            } else {
+                -1
+            };
 
             // Position mode activate
             self.axis_target_positions[index] = target_pulses;
@@ -407,7 +408,8 @@ impl BbmAutomatikV2 {
                     changed = true;
                     tracing::info!(
                         "[Axis {}] Target reached: {} pulses (current: {})",
-                        i, self.axis_target_positions[i],
+                        i,
+                        self.axis_target_positions[i],
                         self.axes[i].get_position() as i32
                     );
                 }
@@ -457,8 +459,12 @@ impl BbmAutomatikV2 {
 
     /// Check if door sensors indicate safe (both closed)
     pub fn are_doors_closed(&self) -> bool {
-        let input1 = self.digital_inputs[inputs::TUER_1].get_value().unwrap_or(false);
-        let input2 = self.digital_inputs[inputs::TUER_2].get_value().unwrap_or(false);
+        let input1 = self.digital_inputs[inputs::TUER_1]
+            .get_value()
+            .unwrap_or(false);
+        let input2 = self.digital_inputs[inputs::TUER_2]
+            .get_value()
+            .unwrap_or(false);
         // Assuming normally closed sensors (true = door closed)
         input1 && input2
     }
@@ -466,9 +472,15 @@ impl BbmAutomatikV2 {
     /// Check if axis is at home position (reference switch active)
     pub fn is_axis_homed(&self, axis: usize) -> bool {
         match axis {
-            axes::MT => self.digital_inputs[inputs::REF_MT].get_value().unwrap_or(false),
-            axes::SCHIEBER => self.digital_inputs[inputs::REF_SCHIEBER].get_value().unwrap_or(false),
-            axes::DRUECKER => self.digital_inputs[inputs::REF_DRUECKER].get_value().unwrap_or(false),
+            axes::MT => self.digital_inputs[inputs::REF_MT]
+                .get_value()
+                .unwrap_or(false),
+            axes::SCHIEBER => self.digital_inputs[inputs::REF_SCHIEBER]
+                .get_value()
+                .unwrap_or(false),
+            axes::DRUECKER => self.digital_inputs[inputs::REF_DRUECKER]
+                .get_value()
+                .unwrap_or(false),
             _ => false, // Bürste has no home switch
         }
     }
@@ -479,7 +491,10 @@ impl BbmAutomatikV2 {
     /// Sequence: 1) Move negative until sensor, 2) Retract 2mm, 3) Set position to 0
     pub fn start_homing(&mut self, index: usize) {
         if index >= self.axes.len() || index == axes::BUERSTE {
-            tracing::warn!("[BbmAutomatikV2] Cannot home axis {} (invalid or rotation axis)", index);
+            tracing::warn!(
+                "[BbmAutomatikV2] Cannot home axis {} (invalid or rotation axis)",
+                index
+            );
             return;
         }
 
@@ -536,7 +551,8 @@ impl BbmAutomatikV2 {
 
                         // Calculate retract target: current position + 2mm
                         let current_pos = self.axes[i].get_position() as i32;
-                        let retract_pulses = (homing::RETRACT_DISTANCE_MM * mechanics::PULSES_PER_MM) as i32;
+                        let retract_pulses =
+                            (homing::RETRACT_DISTANCE_MM * mechanics::PULSES_PER_MM) as i32;
                         self.axis_homing_retract_target[i] = current_pos + retract_pulses;
 
                         // Start Phase 2: Retract

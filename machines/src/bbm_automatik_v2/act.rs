@@ -46,12 +46,7 @@ impl MachineAct for BbmAutomatikV2 {
                 for (i, &speed) in self.axis_speeds.iter().enumerate() {
                     if speed != 0 {
                         let pos = self.axes[i].get_position();
-                        tracing::info!(
-                            "[BBM {}] freq={}Hz pos={}p",
-                            axis_names[i],
-                            speed,
-                            pos
-                        );
+                        tracing::info!("[BBM {}] freq={}Hz pos={}p", axis_names[i], speed, pos);
                     }
                 }
             }

@@ -18,9 +18,9 @@ use crate::schneidemaschine_v0::api::SchneidemaschineV0Namespace;
 
 /// Device Roles for SchneidemaschineV0
 pub mod roles {
-    pub const DIGITAL_INPUT: u16 = 1;  // EL1008
+    pub const DIGITAL_INPUT: u16 = 1; // EL1008
     pub const DIGITAL_OUTPUT: u16 = 2; // EL2008
-    pub const PTO: u16 = 3;            // EL2522
+    pub const PTO: u16 = 3; // EL2522
 }
 
 /// Mechanical constants for the linear axis
@@ -248,7 +248,11 @@ impl SchneidemaschineV0 {
             let speed_hz = mechanics::mm_per_s_to_hz(speed_mm_s.abs());
 
             let current_pulses = self.axes[index].get_position() as i32;
-            let direction = if target_pulses > current_pulses { 1 } else { -1 };
+            let direction = if target_pulses > current_pulses {
+                1
+            } else {
+                -1
+            };
 
             self.axis_target_positions[index] = target_pulses;
             self.axis_position_mode[index] = true;
@@ -295,7 +299,8 @@ impl SchneidemaschineV0 {
                     changed = true;
                     tracing::info!(
                         "[Axis {}] Target reached: {} pulses (current: {})",
-                        i, self.axis_target_positions[i],
+                        i,
+                        self.axis_target_positions[i],
                         self.axes[i].get_position() as i32
                     );
                 }
@@ -363,7 +368,8 @@ impl SchneidemaschineV0 {
     pub fn emit_debug_pto(&mut self, index: usize) {
         let debug = self.get_debug_pto(index);
         let event = debug.build();
-        self.namespace.emit(SchneidemaschineV0Events::DebugPto(event));
+        self.namespace
+            .emit(SchneidemaschineV0Events::DebugPto(event));
     }
 
     /// Log all debug info to console
