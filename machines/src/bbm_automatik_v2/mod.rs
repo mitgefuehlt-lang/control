@@ -1,6 +1,6 @@
 use crate::bbm_automatik_v2::api::{BbmAutomatikV2Events, LiveValuesEvent, StateEvent};
 use crate::machine_identification::{MachineIdentification, MachineIdentificationUnique};
-use crate::{AsyncThreadMessage, Machine, MachineMessage, BBM_AUTOMATIK_V2, VENDOR_QITECH};
+use crate::{AsyncThreadMessage, BBM_AUTOMATIK_V2, Machine, MachineMessage, VENDOR_QITECH};
 use control_core::socketio::namespace::NamespaceCacheingLogic;
 use ethercat_hal::io::digital_input::DigitalInput;
 use ethercat_hal::io::digital_output::DigitalOutput;
