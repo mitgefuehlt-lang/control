@@ -211,6 +211,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 axis_accelerations: [100.0; 4], // Default: 100 mm/s²
                 axis_target_positions: [0; 4],
                 axis_position_mode: [false; 4],
+                axis_position_ignore_cycles: [0; 4],
                 sdo_write_u16: params.sdo_write_u16.clone(),
                 pto_subdevice_indices: [subdevice_index_1, subdevice_index_2],
                 axis_homing_phase: [

@@ -153,6 +153,7 @@ impl MachineNewTrait for SchneidemaschineV0 {
                 axis_accelerations: [100.0; 2], // Default: 100 mm/s²
                 axis_target_positions: [0; 2],
                 axis_position_mode: [false; 2],
+                axis_position_ignore_cycles: [0; 2],
                 sdo_write_u16: params.sdo_write_u16.clone(),
                 pto_subdevice_index,
             };

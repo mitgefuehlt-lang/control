@@ -131,6 +131,9 @@ pub struct BbmAutomatikV2 {
     pub axis_accelerations: [f32; 4],
     pub axis_target_positions: [i32; 4],
     pub axis_position_mode: [bool; 4],
+    /// Ignore select_end_counter for N cycles after starting a new move
+    /// (hardware needs time to process go_counter and clear the old signal)
+    pub axis_position_ignore_cycles: [u8; 4],
 
     // Hardware ramp control
     pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,
@@ -360,6 +363,9 @@ impl BbmAutomatikV2 {
             // Position mode activate
             self.axis_target_positions[index] = target_pulses;
             self.axis_position_mode[index] = true;
+            // Ignore select_end_counter for 5 cycles (~3.5ms at 700µs cycle)
+            // so hardware has time to process new go_counter and clear stale signal
+            self.axis_position_ignore_cycles[index] = 5;
 
             // Hardware output: go_counter + target position + speed
             let mut output = self.axes[index].get_output();
@@ -393,8 +399,11 @@ impl BbmAutomatikV2 {
 
             // ====== POSITION MODE: Target detection ======
             if self.axis_position_mode[i] {
-                // Target position reached? (select_end_counter = true)
-                if input.select_end_counter {
+                // Grace period after starting a new move: hardware needs time to
+                // process go_counter and clear the stale select_end_counter signal
+                if self.axis_position_ignore_cycles[i] > 0 {
+                    self.axis_position_ignore_cycles[i] -= 1;
+                } else if input.select_end_counter {
                     self.axis_speeds[i] = 0;
                     self.axis_target_speeds[i] = 0;
                     self.axis_position_mode[i] = false;

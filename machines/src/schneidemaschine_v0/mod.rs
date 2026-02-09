@@ -70,6 +70,7 @@ pub struct SchneidemaschineV0 {
     pub axis_accelerations: [f32; 2],
     pub axis_target_positions: [i32; 2],
     pub axis_position_mode: [bool; 2],
+    pub axis_position_ignore_cycles: [u8; 2],
 
     // Hardware ramp control
     pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,
@@ -256,6 +257,7 @@ impl SchneidemaschineV0 {
 
             self.axis_target_positions[index] = target_pulses;
             self.axis_position_mode[index] = true;
+            self.axis_position_ignore_cycles[index] = 5;
 
             let mut output = self.axes[index].get_output();
             output.go_counter = true;
@@ -286,7 +288,9 @@ impl SchneidemaschineV0 {
 
             // Position mode: target detection
             if self.axis_position_mode[i] {
-                if input.select_end_counter {
+                if self.axis_position_ignore_cycles[i] > 0 {
+                    self.axis_position_ignore_cycles[i] -= 1;
+                } else if input.select_end_counter {
                     self.axis_speeds[i] = 0;
                     self.axis_target_speeds[i] = 0;
                     self.axis_position_mode[i] = false;
