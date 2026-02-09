@@ -624,6 +624,7 @@ export const bbmAutomatikV2: MachineProperties = {
   version: "V2",
   slug: "bbm_automatik_v2",
   icon: "lu:Package",
+  defaultTab: "auto",
   machine_identification: {
     vendor: VENDOR_QITECH,
     machine: 0x0038,

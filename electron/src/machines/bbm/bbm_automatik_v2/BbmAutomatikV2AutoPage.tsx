@@ -19,7 +19,7 @@ export function BbmAutomatikV2AutoPage() {
   } = useBbmAutomatikV2();
 
   // Local state
-  const [speedPreset, setSpeedPreset] = useState<SpeedPreset>("medium");
+  const [speedPreset, setSpeedPreset] = useState<SpeedPreset>("slow");
   const [magazinSets, setMagazinSets] = useState<number>(1);
   const [isRunning, setIsRunning] = useState(false);
 

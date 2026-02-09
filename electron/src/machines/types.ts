@@ -84,6 +84,8 @@ export type MachineProperties = {
   machine_identification: MachineIdentification;
   // roles and thair allowed devices
   device_roles: DeviceRole[];
+  // default tab to navigate to from sidebar (defaults to "control" if not set)
+  defaultTab?: string;
 };
 
 export const deviceIdentification = z.object({

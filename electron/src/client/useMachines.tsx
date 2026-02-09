@@ -16,6 +16,7 @@ type UseMachine = {
   slug: MachineProperties["slug"];
   vendor: VendorProperties["name"];
   icon: MachineProperties["icon"];
+  defaultTab: MachineProperties["defaultTab"];
 };
 
 // returns only valid machines
@@ -44,6 +45,7 @@ export function useMachines(): UseMachine[] {
             slug: machinePreset.slug,
             vendor: vendorPreset.name,
             icon: machinePreset.icon,
+            defaultTab: machinePreset.defaultTab,
           };
         })
         .filter((machine) => machine !== undefined) || []

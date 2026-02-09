@@ -14,7 +14,7 @@ export function BbmAutomatikV2TestPage() {
     isLoading,
   } = useBbmAutomatikV2();
 
-  const [speedPreset, setSpeedPreset] = useState<SpeedPreset>("medium");
+  const [speedPreset, setSpeedPreset] = useState<SpeedPreset>("slow");
 
   // TODO: Implement test sequences
   const handleSequence1x = () => {
