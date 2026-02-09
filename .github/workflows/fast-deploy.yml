@@ -54,7 +54,7 @@ jobs:
              systemctl is-active qitech-control-server; \
              systemctl is-active dnsmasq"
 
-      - name: Restart Electron UI
+      - name: Restart Electron UI and verify server
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -62,4 +62,9 @@ jobs:
         run: |
           SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=10"
           ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "pkill qitech-control- || true; echo 'Electron UI restarted (GNOME autostart will relaunch)'"
+            "pkill -x qitech-control-e || true; \
+             sleep 2; \
+             sudo systemctl restart qitech-control-server; \
+             sleep 5; \
+             systemctl is-active qitech-control-server; \
+             echo 'Electron UI restarted, server verified'"
