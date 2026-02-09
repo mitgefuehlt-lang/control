@@ -226,7 +226,7 @@ impl SchneidemaschineV0 {
             let accel_hz_s = clamped * mechanics::PULSES_PER_MM;
             let base_freq = 5000.0_f32;
             let rising_ms = ((base_freq / accel_hz_s) * 1000.0) as u16;
-            let falling_ms = ((rising_ms as f32) * 0.9) as u16;
+            let falling_ms = rising_ms; // Same as rising to avoid step loss from aggressive braking
 
             // SDO-Write to EL2522
             if let Some(sdo_write) = &self.sdo_write_u16 {
@@ -297,12 +297,21 @@ impl SchneidemaschineV0 {
                     self.axes[i].set_output(output);
 
                     changed = true;
-                    tracing::info!(
-                        "[Axis {}] Target reached: {} pulses (current: {})",
-                        i,
-                        self.axis_target_positions[i],
-                        self.axes[i].get_position() as i32
-                    );
+                    let actual_pos = self.axes[i].get_position() as i32;
+                    let target_pos = self.axis_target_positions[i];
+                    let deviation = (actual_pos - target_pos).abs();
+                    if deviation > 2 {
+                        tracing::warn!(
+                            "[Axis {}] STEP LOSS DETECTED: target={} actual={} deviation={} pulses ({:.2} mm)",
+                            i, target_pos, actual_pos, deviation,
+                            deviation as f32 / mechanics::PULSES_PER_MM
+                        );
+                    } else {
+                        tracing::info!(
+                            "[Axis {}] Target reached: {} pulses (actual: {}, deviation: {})",
+                            i, target_pos, actual_pos, deviation
+                        );
+                    }
                 }
             }
 

@@ -29,19 +29,17 @@ pub struct PtoStatus {
 
 impl TxPdoObject for PtoStatus {
     fn read(&mut self, bits: &BitSlice<u8, Lsb0>) {
-        // only read other values if txpdo_toggle is true
-        self.txpdo_toggle = bits[8 + 7];
-        if !self.txpdo_toggle {
-            return;
-        }
-
+        // Always read all fields unconditionally.
+        // The txpdo_toggle bit alternates 0/1 with each new data cycle.
+        // Previously this skipped reading when toggle=0, causing 50% of
+        // hardware status updates to be missed (including select_end_counter).
         self.select_end_counter = bits[0];
         self.ramp_active = bits[1];
         self.input_t = bits[4];
         self.input_z = bits[5];
         self.error = bits[6];
-
         self.sync_error = bits[8 + 5];
+        self.txpdo_toggle = bits[8 + 7];
     }
 }
 
@@ -71,16 +69,12 @@ pub struct EncStatus {
 
 impl TxPdoObject for EncStatus {
     fn read(&mut self, bits: &BitSlice<u8, Lsb0>) {
-        // only read other values if txpdo_toggle is true
-        self.txpdo_toggle = bits[8 + 7];
-        if !self.txpdo_toggle {
-            return;
-        }
-
+        // Always read all fields unconditionally (see PtoStatus comment).
         self.set_counter_done = bits[2];
         self.counter_underflow = bits[3];
         self.counter_overflow = bits[4];
         self.sync_error = bits[8 + 5];
+        self.txpdo_toggle = bits[8 + 7];
         self.counter_value = bits[16..16 + 32].load_le();
     }
 }
@@ -193,6 +187,48 @@ mod tests {
                 counter_overflow: true,
                 sync_error: true,
                 txpdo_toggle: true,
+                counter_value: 0x12345678
+            }
+        )
+    }
+
+    #[test]
+    fn test_pto_status_toggle_false() {
+        // Verify data is read even when txpdo_toggle=0 (bit 15 clear)
+        // Previously this was skipped, causing 50% of status updates to be lost
+        let buffer = vec![0b0111_0011u8, 0b0010_0000u8]; // toggle=0, sync_error=1
+        let bits = buffer.view_bits::<Lsb0>();
+        let mut pdo_status = PtoStatus::default();
+        pdo_status.read(&bits);
+        assert_eq!(
+            pdo_status,
+            PtoStatus {
+                select_end_counter: true,
+                ramp_active: true,
+                input_t: true,
+                input_z: true,
+                error: true,
+                sync_error: true,
+                txpdo_toggle: false
+            }
+        )
+    }
+
+    #[test]
+    fn test_enc_status_toggle_false() {
+        // Verify encoder data is read even when txpdo_toggle=0
+        let buffer = vec![0b0001_1100u8, 0b0010_0000u8, 0x78u8, 0x56u8, 0x34u8, 0x12u8];
+        let bits = buffer.view_bits::<Lsb0>();
+        let mut enc_status = EncStatus::default();
+        enc_status.read(&bits);
+        assert_eq!(
+            enc_status,
+            EncStatus {
+                set_counter_done: true,
+                counter_underflow: true,
+                counter_overflow: true,
+                sync_error: true,
+                txpdo_toggle: false,
                 counter_value: 0x12345678
             }
         )
