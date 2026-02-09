@@ -1702,3 +1702,116 @@ output.frequency_value = speed_hz;  // Immer positiv, Hardware bestimmt Richtung
 - [x] Richtung: Vorwaerts und Rueckwaerts funktioniert nach frequency_value Fix
 - [ ] Schrittverlust-Log pruefen (STEP LOSS DETECTED Warnung im Journal)
 - [ ] Verschiedene Beschleunigungen testen
+
+### 8. UI-Verbesserungen (Nachmittag)
+
+~16:00 [Claude Opus 4.6]
+
+Diverse UI-Verbesserungen fuer BBM Automatik V2 auf Basis von Bediener-Feedback.
+
+#### 8.1 JOG-Button Beschriftung
+
+**Aenderung:** Symbole vor den Text verschoben fuer bessere Lesbarkeit auf Touchscreen.
+
+| Vorher | Nachher |
+|--------|---------|
+| `JOG+` | `+ JOG` |
+| `JOG-` | `- JOG` |
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2MotorsPage.tsx`
+
+#### 8.2 Input-Limits angepasst
+
+Eingabefelder auf sinnvolle Bereiche begrenzt (Soft Limits passend zur Mechanik):
+
+| Feld | Vorher | Nachher |
+|------|--------|---------|
+| Schrittweite (Step Size) | 1-1000 mm | 0-200 mm |
+| Sollposition (Target Position) | 0-10000 mm | 0-500 mm |
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2MotorsPage.tsx`
+
+#### 8.3 Endlage-Labels auf Status-Seite
+
+**Aenderung:** Beschriftung der Referenzschalter-Anzeigen von "Referenz" auf "Endlage" geaendert (entspricht der tatsaechlichen Funktion - es sind Endlagenschalter, keine Referenzschalter).
+
+| Vorher | Nachher |
+|--------|---------|
+| Referenz MT | Endlage MT |
+| Referenz Schieber | Endlage Schieber |
+| Referenz Druecker | Endlage Druecker |
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2StatusPage.tsx`
+
+#### 8.4 Geschwindigkeits-Preset Farben (Ampel-System)
+
+Speed-Preset-Buttons auf der Auto-Seite mit Ampelfarben fuer intuitive Bedienung:
+
+| Preset | Farbe | Bedeutung |
+|--------|-------|-----------|
+| Langsam | Gruen | Sicher, Einrichten |
+| Mittel | Gelb | Normal |
+| Schnell | Rot | Volle Geschwindigkeit |
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2AutoPage.tsx`
+
+#### 8.5 Speed-Presets auf Testsequenz-Seite
+
+Gleiche 3 Geschwindigkeits-Buttons (Langsam/Mittel/Schnell mit Gruen/Gelb/Rot) auch auf der Test-Seite hinzugefuegt. Vorher war dort keine Geschwindigkeitsauswahl moeglich.
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2TestPage.tsx`
+
+#### 8.6 Auto STOP-Button Zustandsanzeige
+
+STOP-Button auf der Auto-Seite zeigt jetzt den Zustand visuell an:
+- **Grau** wenn Automatik inaktiv (nichts zum Stoppen)
+- **Rot** wenn Automatik laeuft (aktive Stopp-Moeglichkeit)
+
+Entspricht dem gleichen Pattern wie auf der Motors-Seite.
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2AutoPage.tsx`
+
+#### 8.7 Default-Geschwindigkeit = Langsam
+
+Beim Laden der Auto- und Test-Seite ist jetzt "Langsam" (gruener Button) vorausgewaehlt statt "Mittel". Sicherheitsmassnahme: Maschine startet immer mit der langsamsten Geschwindigkeit.
+
+**Dateien:**
+- `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2AutoPage.tsx`
+- `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2TestPage.tsx`
+
+#### 8.8 Sidebar-Routing Fix (BBM Automatik -> Auto Tab)
+
+**Problem:** Klick auf "BBM Automatik" in der Sidebar fuehrte zu einer "not found" Seite, weil kein Default-Tab definiert war.
+
+**Loesung:** Neues `defaultTab` Feld in der Maschinen-Konfiguration eingefuehrt. BBM Automatik V2 setzt `defaultTab: "auto"`, so dass der Sidebar-Link direkt zum Auto-Tab navigiert.
+
+**Geaenderte Dateien:**
+- `electron/src/machines/types.ts` - `defaultTab` Feld zu `MachineProperties` Typ hinzugefuegt
+- `electron/src/machines/properties.ts` - `defaultTab: "auto"` fuer BBM Automatik V2 gesetzt
+- `electron/src/machines/useMachines.tsx` - `defaultTab` aus Properties durchgereicht
+- `electron/src/sidebar/SidebarLayout.tsx` - Navigation nutzt `defaultTab` wenn vorhanden
+
+### Commits (UI-Verbesserungen)
+
+8. `93da9016` - UI improvements: JOG labels, input limits, Endlage labels, speed colors
+9. `df804fae` - Add speed presets to Testsequenz page, fix Auto stop button
+10. `6f4fa6ae` - Fix default speed to Langsam, fix sidebar routing to Auto tab
+
+### Tages-Zusammenfassung (2026-02-09)
+
+Alle Commits dieser Session im Ueberblick:
+
+| # | Commit | Beschreibung | Bereich |
+|---|--------|-------------|---------|
+| 1 | `febcdcb1` | Fix step loss: txpdo_toggle bug, aggressive braking, add position verification | Backend/HAL |
+| 2 | `47523e05` | Fix fast-deploy: support deploying any branch | DevOps |
+| 3 | `f2cad828` | Fix JOG after position move: add grace period for select_end_counter | Backend |
+| 4 | `8ff1ca1a` | Fix direction: frequency_value must be positive in TDC mode | Backend |
+| 5 | `cf614729` | Add UI restart to deploy workflow, document branch workflow | DevOps |
+| 6 | `691ada45` | Fix deploy: separate UI restart into own SSH step | DevOps |
+| 7 | `da2acb29` | Fix deploy: pkill pattern was too broad, killed server too | DevOps |
+| 8 | `93da9016` | UI improvements: JOG labels, input limits, Endlage labels, speed colors | Frontend |
+| 9 | `df804fae` | Add speed presets to Testsequenz page, fix Auto stop button | Frontend |
+| 10 | `6f4fa6ae` | Fix default speed to Langsam, fix sidebar routing to Auto tab | Frontend |
+
+**Schwerpunkte:** Hardware Travel Distance Control Bugfixes (1-4), Deploy-Workflow Fixes (5-7), UI-Verbesserungen (8-10)
