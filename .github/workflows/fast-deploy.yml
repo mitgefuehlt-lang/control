@@ -52,4 +52,5 @@ jobs:
              sleep 5; \
              systemctl is-active sshd; \
              systemctl is-active qitech-control-server; \
-             systemctl is-active dnsmasq"
+             systemctl is-active dnsmasq; \
+             pkill -f qitech-control-electron || true"
