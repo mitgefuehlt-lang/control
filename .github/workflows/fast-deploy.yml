@@ -52,5 +52,14 @@ jobs:
              sleep 5; \
              systemctl is-active sshd; \
              systemctl is-active qitech-control-server; \
-             systemctl is-active dnsmasq; \
-             pkill -f qitech-control-electron || true"
+             systemctl is-active dnsmasq"
+
+      - name: Restart Electron UI
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=10"
+          ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "pkill qitech-control- || true; echo 'Electron UI restarted (GNOME autostart will relaunch)'"
