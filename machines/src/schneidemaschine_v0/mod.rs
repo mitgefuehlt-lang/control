@@ -259,13 +259,17 @@ impl SchneidemaschineV0 {
             self.axis_position_mode[index] = true;
             self.axis_position_ignore_cycles[index] = 5;
 
+            // In Travel Distance Control mode, the EL2522 hardware automatically
+            // determines direction by comparing target_counter_value vs current position.
+            // frequency_value must be POSITIVE (magnitude only) - sign is NOT used for direction.
             let mut output = self.axes[index].get_output();
             output.go_counter = true;
             output.disble_ramp = false;
-            output.frequency_value = speed_hz * direction;
+            output.frequency_value = speed_hz;
             output.target_counter_value = target_pulses as u32;
             self.axes[index].set_output(output);
 
+            // Keep sign for UI display
             self.axis_target_speeds[index] = speed_hz * direction;
             self.axis_speeds[index] = speed_hz * direction;
 
