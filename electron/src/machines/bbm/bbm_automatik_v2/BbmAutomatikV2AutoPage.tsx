@@ -111,7 +111,7 @@ export function BbmAutomatikV2AutoPage() {
                 onClick={handleStop}
                 disabled={isDisabled || !isRunning}
                 isLoading={isLoading}
-                className="flex-1 h-14 text-lg"
+                className={`flex-1 h-14 text-lg ${!isRunning && !isDisabled ? "bg-gray-400 hover:bg-gray-400 border-gray-400 text-gray-600" : ""}`}
               >
                 STOP
               </TouchButton>

@@ -3,12 +3,18 @@ import { Page } from "@/components/Page";
 import { ControlGrid } from "@/control/ControlGrid";
 import { useBbmAutomatikV2 } from "./useBbmAutomatikV2";
 import { TouchButton } from "@/components/touch/TouchButton";
+import { Label } from "@/control/Label";
+import { useState } from "react";
+
+type SpeedPreset = "slow" | "medium" | "fast";
 
 export function BbmAutomatikV2TestPage() {
   const {
     isDisabled,
     isLoading,
   } = useBbmAutomatikV2();
+
+  const [speedPreset, setSpeedPreset] = useState<SpeedPreset>("medium");
 
   // TODO: Implement test sequences
   const handleSequence1x = () => {
@@ -32,6 +38,33 @@ export function BbmAutomatikV2TestPage() {
       <ControlGrid columns={2}>
         <ControlCard title="Test-Sequenzen">
           <div className="flex flex-col gap-4">
+            <Label label="Geschwindigkeit">
+              <div className="flex gap-2">
+                {(["slow", "medium", "fast"] as SpeedPreset[]).map((preset) => (
+                  <TouchButton
+                    key={preset}
+                    variant={speedPreset === preset ? "default" : "outline"}
+                    onClick={() => setSpeedPreset(preset)}
+                    className={`flex-1 h-12 ${
+                      speedPreset === preset
+                        ? preset === "slow"
+                          ? "bg-green-600 hover:bg-green-700"
+                          : preset === "medium"
+                          ? "bg-yellow-600 hover:bg-yellow-700"
+                          : "bg-red-600 hover:bg-red-700"
+                        : ""
+                    }`}
+                  >
+                    {preset === "slow"
+                      ? "Langsam"
+                      : preset === "medium"
+                      ? "Mittel"
+                      : "Schnell"}
+                  </TouchButton>
+                ))}
+              </div>
+            </Label>
+
             <TouchButton
               variant="default"
               icon="lu:CirclePlay"
