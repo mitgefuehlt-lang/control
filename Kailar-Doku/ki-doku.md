@@ -1638,6 +1638,10 @@ if deviation > 2 {
 1. `febcdcb1` - Fix step loss: txpdo_toggle bug, aggressive braking, add position verification
 2. `47523e05` - Fix fast-deploy: support deploying any branch, not just current
 3. `f2cad828` - Fix JOG after position move: add grace period for select_end_counter
+4. `8ff1ca1a` - Fix direction: frequency_value must be positive in TDC mode
+5. `cf614729` - Fix deploy workflow pkill scope
+6. `691ada45` - Deploy workflow fix continued
+7. `da2acb29` - Deploy workflow finalized
 
 ### Geaenderte Dateien
 
@@ -1648,11 +1652,53 @@ if deviation > 2 {
 | `machines/src/bbm_automatik_v2/new.rs` | `axis_position_ignore_cycles` Init |
 | `machines/src/schneidemaschine_v0/mod.rs` | Gleiche Fixes |
 | `machines/src/schneidemaschine_v0/new.rs` | `axis_position_ignore_cycles` Init |
-| `.github/workflows/fast-deploy.yml` | Branch-Support |
+| `.github/workflows/fast-deploy.yml` | Branch-Support, pkill-Scope Fix, Server-Restart separiert |
+
+### 6. Direction Fix (frequency_value muss positiv sein)
+
+~15:00 [Claude Opus 4.6]
+
+**Problem:** Motor fuhr nur in eine Richtung (vorwaerts). Rueckwaertsfahrt funktionierte nicht - Motor blieb stehen oder fuhr weiter vorwaerts.
+
+**Ursache:** In `move_to_position_mm()` wurde die Frequenz mit der Richtung multipliziert:
+```rust
+// VORHER (fehlerhaft):
+output.frequency_value = speed_hz * direction;  // direction = -1 bei Rueckwaerts
+```
+
+Im Travel Distance Control Modus (`go_counter = true`) bestimmt die EL2522-Hardware die Fahrtrichtung **automatisch** durch Vergleich von `target_counter_value` mit der aktuellen Position. Ein negativer `frequency_value` kollidierte mit dieser automatischen Richtungssteuerung - die Hardware interpretierte den negativen Wert nicht als "rueckwaerts", sondern als ungueltigen/widerspruchlichen Befehl.
+
+**Fix:** `frequency_value` immer positiv (nur Betrag/Magnitude):
+```rust
+// NACHHER (korrekt):
+output.frequency_value = speed_hz;  // Immer positiv, Hardware bestimmt Richtung
+```
+
+**Dateien:**
+- `machines/src/bbm_automatik_v2/mod.rs`
+- `machines/src/schneidemaschine_v0/mod.rs`
+
+**Commit:** `8ff1ca1a` - Fix direction: frequency_value must be positive in TDC mode
+
+### 7. Deploy-Workflow Fix (pkill zu breit)
+
+~15:30 [Claude Opus 4.6]
+
+**Problem:** `pkill qitech-control-` im Deploy-Workflow war zu breit gefasst und killte nicht nur die Electron-App sondern auch den `qitech-control-server` (systemd Service). Das fuehrte dazu, dass nach einem Deploy der Server kurz offline war.
+
+**Fix:** Zwei separate Schritte statt einem breiten `pkill`:
+1. `pkill -x qitech-control-e` - killt nur die Electron-App (exakter Match)
+2. Separater Server-Restart-Schritt: `sudo systemctl restart qitech-control-server`
+
+**Commits:**
+- `cf614729` - Fix deploy workflow pkill scope
+- `691ada45` - Weiterer Deploy-Workflow Fix
+- `da2acb29` - Deploy-Workflow Finalisierung
 
 ### Hardware-Test-Ergebnis
 
 - [x] Position Mode: Funktioniert nach txpdo_toggle Fix
 - [x] JOG Mode: Funktioniert nach Grace-Period Fix
+- [x] Richtung: Vorwaerts und Rueckwaerts funktioniert nach frequency_value Fix
 - [ ] Schrittverlust-Log pruefen (STEP LOSS DETECTED Warnung im Journal)
 - [ ] Verschiedene Beschleunigungen testen

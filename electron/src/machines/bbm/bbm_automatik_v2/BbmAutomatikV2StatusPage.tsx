@@ -38,9 +38,9 @@ export function BbmAutomatikV2StatusPage() {
     if (!liveValues) return;
 
     const inputNames = [
-      "Referenz MT",
-      "Referenz Schieber",
-      "Referenz Drücker",
+      "Endlage MT",
+      "Endlage Schieber",
+      "Endlage Drücker",
       "Tür 1",
       "Tür 2",
     ];
@@ -55,9 +55,9 @@ export function BbmAutomatikV2StatusPage() {
 
   // Sensor names
   const inputNames = [
-    "Referenz MT",
-    "Referenz Schieber",
-    "Referenz Drücker",
+    "Endlage MT",
+    "Endlage Schieber",
+    "Endlage Drücker",
     "Tür 1",
     "Tür 2",
     "DI 6 (frei)",

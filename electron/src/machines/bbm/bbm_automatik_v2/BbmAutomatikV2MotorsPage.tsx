@@ -303,7 +303,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               defaultValue={DEFAULT_AXIS_INPUTS.position}
               resetPlacement="header"
               min={0}
-              max={10000}
+              max={500}
               step={10}
               renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
               onChange={(pos) =>
@@ -319,8 +319,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               compact
               defaultValue={DEFAULT_AXIS_INPUTS.step}
               resetPlacement="header"
-              min={1}
-              max={1000}
+              min={0}
+              max={200}
               step={1}
               renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
               onChange={(step) => setAxisValue(axisIndex, "step", step)}
@@ -362,7 +362,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             isLoading={isLoading}
             className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
           >
-            JOG-
+            - JOG
           </TouchButton>
 
           <TouchButton
@@ -383,7 +383,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             isLoading={isLoading}
             className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
           >
-            JOG+
+            + JOG
           </TouchButton>
 
           <TouchButton
