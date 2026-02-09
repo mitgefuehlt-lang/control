@@ -41,10 +41,13 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=10"
+          BRANCH="${GITHUB_REF#refs/heads/}"
           ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "set -euo pipefail; \
              cd \"$DEPLOY_PATH\"; \
-             git pull --ff-only; \
+             git fetch origin; \
+             git checkout \"$BRANCH\"; \
+             git reset --hard \"origin/$BRANCH\"; \
              sudo nixos-rebuild switch --flake .#nixos --impure --show-trace; \
              sleep 5; \
              systemctl is-active sshd; \
