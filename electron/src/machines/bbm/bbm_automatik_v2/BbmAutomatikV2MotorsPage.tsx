@@ -64,6 +64,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     getAxisSpeedMmS,
     getAxisSpeedRpm,
     getAxisPositionMm,
+    getAxisSoftLimitMax,
     isDisabled,
     isLoading,
     MAX_SPEED_MM_S,
@@ -71,6 +72,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     MAX_ACCELERATION_MM_S2,
     MIN_ACCELERATION_MM_S2,
   } = useBbmAutomatikV2();
+
+  const softLimitMax = getAxisSoftLimitMax(axisIndex);
 
   const axisInputs = useBbmMotorsUiStore(
     (store) => store.axes[axisIndex] ?? DEFAULT_AXIS_INPUTS,
@@ -303,7 +306,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               defaultValue={DEFAULT_AXIS_INPUTS.position}
               resetPlacement="header"
               min={0}
-              max={500}
+              max={softLimitMax ?? 500}
               step={10}
               renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
               onChange={(pos) =>
@@ -320,7 +323,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               defaultValue={DEFAULT_AXIS_INPUTS.step}
               resetPlacement="header"
               min={0}
-              max={200}
+              max={softLimitMax ?? 200}
               step={1}
               renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
               onChange={(step) => setAxisValue(axisIndex, "step", step)}

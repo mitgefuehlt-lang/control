@@ -48,6 +48,25 @@ pub mod outputs {
     pub const AMPEL_GRUEN: usize = 3; // Ampel Grün
 }
 
+/// Soft limits per axis in mm (0 = home position after homing)
+/// Values from Arduino BBMx22_Automatik_Code.ino v3.2
+pub mod soft_limits {
+    pub const MT_MAX_MM: f32 = 230.0;
+    pub const SCHIEBER_MAX_MM: f32 = 53.0;
+    pub const DRUECKER_MAX_MM: f32 = 107.0;
+    pub const MIN_MM: f32 = 0.0;
+
+    /// Get max position for axis in mm (None = no limit, e.g. rotation)
+    pub fn max_position_mm(axis: usize) -> Option<f32> {
+        match axis {
+            super::axes::MT => Some(MT_MAX_MM),
+            super::axes::SCHIEBER => Some(SCHIEBER_MAX_MM),
+            super::axes::DRUECKER => Some(DRUECKER_MAX_MM),
+            _ => None, // Bürste = rotation, no limit
+        }
+    }
+}
+
 /// Homing configuration
 pub mod homing {
     /// Homing speed in mm/s (slow for precision)
@@ -184,6 +203,12 @@ impl BbmAutomatikV2 {
             axis_target_positions: self.axis_target_positions,
             axis_position_mode: self.axis_position_mode,
             axis_homing_active: homing_active,
+            axis_soft_limit_max: [
+                soft_limits::max_position_mm(0),
+                soft_limits::max_position_mm(1),
+                soft_limits::max_position_mm(2),
+                soft_limits::max_position_mm(3),
+            ],
         }
     }
 
@@ -349,7 +374,21 @@ impl BbmAutomatikV2 {
     /// Hardware ramps up, brakes, and stops exactly at target
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
         if index < self.axes.len() {
-            let target_pulses = (position_mm.round() * mechanics::PULSES_PER_MM) as i32;
+            // Clamp to soft limits
+            let clamped_mm = if let Some(max) = soft_limits::max_position_mm(index) {
+                position_mm.clamp(soft_limits::MIN_MM, max)
+            } else {
+                position_mm
+            };
+
+            if (clamped_mm - position_mm).abs() > 0.1 {
+                tracing::warn!(
+                    "[BbmAutomatikV2] Axis {} position clamped: {:.1} mm -> {:.1} mm (soft limit)",
+                    index, position_mm, clamped_mm
+                );
+            }
+
+            let target_pulses = (clamped_mm.round() * mechanics::PULSES_PER_MM) as i32;
             let speed_hz = mechanics::mm_per_s_to_hz(speed_mm_s.abs());
 
             // Determine direction
@@ -386,7 +425,7 @@ impl BbmAutomatikV2 {
             tracing::info!(
                 "[BbmAutomatikV2] Axis {} moving to {:.0} mm ({} pulses) at {:.1} mm/s",
                 index,
-                position_mm.round(),
+                clamped_mm.round(),
                 target_pulses,
                 speed_mm_s
             );
@@ -438,6 +477,20 @@ impl BbmAutomatikV2 {
 
             // ====== JOG MODE: Send speed directly to hardware ======
             if !self.axis_position_mode[i] {
+                // Check soft limits during JOG
+                if let Some(max_mm) = soft_limits::max_position_mm(i) {
+                    let current_mm = self.axes[i].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
+                    let target = self.axis_target_speeds[i];
+
+                    // Stop if at max and moving positive, or at min and moving negative
+                    if (current_mm >= max_mm && target > 0) || (current_mm <= soft_limits::MIN_MM && target < 0) {
+                        if self.axis_target_speeds[i] != 0 {
+                            self.axis_target_speeds[i] = 0;
+                            tracing::warn!("[BbmAutomatikV2] Axis {} soft limit reached at {:.1} mm - stopping", i, current_mm);
+                        }
+                    }
+                }
+
                 let target = self.axis_target_speeds[i];
                 if self.axis_speeds[i] != target {
                     // Send new target speed to hardware

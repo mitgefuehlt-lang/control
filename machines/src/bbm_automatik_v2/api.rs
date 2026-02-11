@@ -20,6 +20,7 @@ pub struct StateEvent {
     pub axis_target_positions: [i32; 4], // Signed to support negative positions
     pub axis_position_mode: [bool; 4],
     pub axis_homing_active: [bool; 4],
+    pub axis_soft_limit_max: [Option<f32>; 4],
 }
 
 impl StateEvent {

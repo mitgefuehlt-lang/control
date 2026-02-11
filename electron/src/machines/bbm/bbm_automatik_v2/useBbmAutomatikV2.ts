@@ -400,6 +400,11 @@ function useBbmAutomatik(
     return stateOptimistic.value?.data.axis_accelerations[index];
   };
 
+  // Helper to get soft limit max for axis (null = no limit)
+  const getAxisSoftLimitMax = (index: number): number | null => {
+    return stateOptimistic.value?.data.axis_soft_limit_max[index] ?? null;
+  };
+
   // Check if doors are closed
   const areDoorsClosedFn = (): boolean => {
     if (!liveValues) return false;
@@ -446,6 +451,7 @@ function useBbmAutomatik(
     getAxisSpeedRpm,
     getAxisPositionMm,
     getAxisAcceleration,
+    getAxisSoftLimitMax,
 
     // Constants
     AXIS,
