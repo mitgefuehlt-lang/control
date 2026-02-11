@@ -52,7 +52,7 @@ impl MachineNewTrait for BufferV1 {
                     .0;
 
             // Role 1 - Stepper Buffer EL7041-0052
-            let (el7041, subdevice) = get_ethercat_device::<EL7041_0052>(
+            let (el7041, subdevice, _) = get_ethercat_device::<EL7041_0052>(
                 hardware,
                 params,
                 1,
@@ -83,7 +83,7 @@ impl MachineNewTrait for BufferV1 {
             }
 
             // Role 2 - Stepper Puller EL7031-0030
-            let (el7031, subdevice) = get_ethercat_device::<EL7031_0030>(
+            let (el7031, subdevice, _) = get_ethercat_device::<EL7031_0030>(
                 hardware,
                 params,
                 2,

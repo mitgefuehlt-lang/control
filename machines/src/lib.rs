@@ -29,8 +29,8 @@ pub mod laser;
 pub mod machine_identification;
 pub mod mock;
 pub mod registry;
-pub mod serial;
 pub mod schneidemaschine_v0;
+pub mod serial;
 pub mod test_machine;
 pub mod wago_ai_test_machine;
 pub mod wago_power;
@@ -72,6 +72,10 @@ pub enum AsyncThreadMessage {
     DisconnectMachines(CrossConnection),
 }
 
+/// Callback type for runtime SDO writes to EtherCAT devices
+/// Parameters: (subdevice_index, sdo_index, subindex, value)
+pub type SdoWriteU16Fn = Arc<dyn Fn(usize, u16, u8, u16) + Send + Sync>;
+
 pub struct MachineNewParams<
     'maindevice,
     'subdevices,
@@ -97,6 +101,7 @@ pub struct MachineNewParams<
     pub socket_queue_tx: Sender<(SocketRef, Arc<GenericEvent>)>,
     pub main_thread_channel: Option<Sender<AsyncThreadMessage>>,
     pub namespace: Option<Namespace>,
+    pub sdo_write_u16: Option<SdoWriteU16Fn>,
 }
 
 impl MachineNewParams<'_, '_, '_, '_, '_, '_, '_> {
@@ -382,6 +387,7 @@ async fn get_ethercat_device<
     (
         Arc<RwLock<T>>,
         &'subdevices SubDeviceRef<'subdevices, &'subdevices SubDevice>,
+        usize,
     ),
     anyhow::Error,
 >
@@ -420,7 +426,7 @@ where
         device_guard.set_used(true);
     }
 
-    Ok((device, subdevice))
+    Ok((device, subdevice, subdevice_index))
 }
 
 #[derive(Debug)]
@@ -530,20 +536,22 @@ where
                 let _ = self.api_mutate(value);
             }
             MachineMessage::ConnectToMachine(_machine_connection) => {
-                todo!();
+                // Machine cross-connection not yet implemented
             }
             MachineMessage::DisconnectMachine(_machine_connection) => {
-                todo!();
+                // Machine cross-connection not yet implemented
             }
             MachineMessage::RequestValues(sender) => {
-                sender
-                    .send_blocking(MachineValues {
-                        state: serde_json::to_value(self.get_state())
-                            .expect("Failed to serialize state"),
-                        live_values: serde_json::to_value(self.get_live_values())
-                            .expect("Failed to serialize live values"),
-                    })
-                    .expect("Failed to send values");
+                let state = serde_json::to_value(self.get_state()).unwrap_or_else(|e| {
+                    tracing::error!("Failed to serialize state: {}", e);
+                    serde_json::Value::Null
+                });
+                let live_values =
+                    serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
+                        tracing::error!("Failed to serialize live values: {}", e);
+                        serde_json::Value::Null
+                    });
+                let _ = sender.send_blocking(MachineValues { state, live_values });
                 sender.close();
             }
         }

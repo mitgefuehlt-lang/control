@@ -1,8 +1,6 @@
+use crate::bbm_automatik_v2::api::{BbmAutomatikV2Events, LiveValuesEvent, StateEvent};
 use crate::machine_identification::{MachineIdentification, MachineIdentificationUnique};
-use crate::bbm_automatik_v2::api::{
-    LiveValuesEvent, BbmAutomatikV2Events, StateEvent,
-};
-use crate::{AsyncThreadMessage, Machine, MachineMessage, BBM_AUTOMATIK_V2, VENDOR_QITECH};
+use crate::{AsyncThreadMessage, BBM_AUTOMATIK_V2, Machine, MachineMessage, VENDOR_QITECH};
 use control_core::socketio::namespace::NamespaceCacheingLogic;
 use ethercat_hal::io::digital_input::DigitalInput;
 use ethercat_hal::io::digital_output::DigitalOutput;
@@ -19,35 +17,56 @@ use crate::bbm_automatik_v2::api::BbmAutomatikV2Namespace;
 /// Device Roles for BbmAutomatikV2
 /// Hardware: 2x EL2522 (4 Achsen), EL1008, EL2008
 pub mod roles {
-    pub const DIGITAL_INPUT: u16 = 1;  // EL1008 - 8x DI (3x Referenzschalter, 2x Türsensoren)
+    pub const DIGITAL_INPUT: u16 = 1; // EL1008 - 8x DI (3x Referenzschalter, 2x Türsensoren)
     pub const DIGITAL_OUTPUT: u16 = 2; // EL2008 - 8x DO (1x Rüttelmotor, 3x Ampel)
-    pub const PTO_1: u16 = 3;          // EL2522 #1 - Kanal 1: MT, Kanal 2: Schieber
-    pub const PTO_2: u16 = 4;          // EL2522 #2 - Kanal 1: Drücker, Kanal 2: Bürste
+    pub const PTO_1: u16 = 3; // EL2522 #1 - Kanal 1: MT, Kanal 2: Schieber
+    pub const PTO_2: u16 = 4; // EL2522 #2 - Kanal 1: Drücker, Kanal 2: Bürste
 }
 
 /// Axis indices
 pub mod axes {
-    pub const MT: usize = 0;         // Magazin Transporter (Linear)
-    pub const SCHIEBER: usize = 1;   // Schieber (Linear)
-    pub const DRUECKER: usize = 2;   // Drücker (Linear)
-    pub const BUERSTE: usize = 3;    // Bürste (Rotation)
+    pub const MT: usize = 0; // Magazin Transporter (Linear)
+    pub const SCHIEBER: usize = 1; // Schieber (Linear)
+    pub const DRUECKER: usize = 2; // Drücker (Linear)
+    pub const BUERSTE: usize = 3; // Bürste (Rotation)
 }
 
 /// Digital input indices (0-based array index, DI1 = index 0)
 pub mod inputs {
-    pub const REF_MT: usize = 0;        // Referenzschalter Transporter (DI1 = index 0)
-    pub const REF_SCHIEBER: usize = 1;  // Referenzschalter Schieber (DI2 = index 1)
-    pub const REF_DRUECKER: usize = 2;  // Referenzschalter Drücker (DI3 = index 2)
-    pub const TUER_1: usize = 3;        // Türsensor 1 (DI4 = index 3)
-    pub const TUER_2: usize = 4;        // Türsensor 2 (DI5 = index 4)
+    pub const REF_MT: usize = 0; // Referenzschalter Transporter (DI1 = index 0)
+    pub const REF_SCHIEBER: usize = 1; // Referenzschalter Schieber (DI2 = index 1)
+    pub const REF_DRUECKER: usize = 2; // Referenzschalter Drücker (DI3 = index 2)
+    pub const ALARM_MT: usize = 3; // CL75t Alarm Transporter (DI4 = index 3)
+    pub const ALARM_SCHIEBER: usize = 4; // CL75t Alarm Schieber (DI5 = index 4)
+    pub const ALARM_DRUECKER: usize = 5; // CL75t Alarm Drücker (DI6 = index 5)
+    pub const TUER: usize = 6; // Türsensor (DI7 = index 6)
 }
 
 /// Digital output indices
 pub mod outputs {
-    pub const RUETTELMOTOR: usize = 0;  // Rüttelmotor
-    pub const AMPEL_ROT: usize = 1;     // Ampel Rot
-    pub const AMPEL_GELB: usize = 2;    // Ampel Gelb
-    pub const AMPEL_GRUEN: usize = 3;   // Ampel Grün
+    pub const RUETTELMOTOR: usize = 0; // Rüttelmotor
+    pub const AMPEL_ROT: usize = 1; // Ampel Rot
+    pub const AMPEL_GELB: usize = 2; // Ampel Gelb
+    pub const AMPEL_GRUEN: usize = 3; // Ampel Grün
+}
+
+/// Soft limits per axis in mm (0 = home position after homing)
+/// Values from Arduino BBMx22_Automatik_Code.ino v3.2
+pub mod soft_limits {
+    pub const MT_MAX_MM: f32 = 230.0;
+    pub const SCHIEBER_MAX_MM: f32 = 53.0;
+    pub const DRUECKER_MAX_MM: f32 = 107.0;
+    pub const MIN_MM: f32 = 0.0;
+
+    /// Get max position for axis in mm (None = no limit, e.g. rotation)
+    pub fn max_position_mm(axis: usize) -> Option<f32> {
+        match axis {
+            super::axes::MT => Some(MT_MAX_MM),
+            super::axes::SCHIEBER => Some(SCHIEBER_MAX_MM),
+            super::axes::DRUECKER => Some(DRUECKER_MAX_MM),
+            _ => None, // Bürste = rotation, no limit
+        }
+    }
 }
 
 /// Homing configuration
@@ -107,7 +126,9 @@ pub mod mechanics {
     }
 }
 
-#[derive(Debug)]
+/// Alarm polarity: CL75t open-collector = active LOW (false = alarm)
+const ALARM_ACTIVE_LOW: bool = true;
+
 pub struct BbmAutomatikV2 {
     pub api_receiver: Receiver<MachineMessage>,
     pub api_sender: Sender<MachineMessage>,
@@ -129,16 +150,35 @@ pub struct BbmAutomatikV2 {
     // Axis 2: Drücker (EL2522 #2, Ch1)
     // Axis 3: Bürste (EL2522 #2, Ch2)
     pub axes: [PulseTrainOutput; 4],
-    pub axis_speeds: [i32; 4],           // Current speed (Hz) - used by software ramp
-    pub axis_target_speeds: [i32; 4],    // Target speed (Hz) - what we want to reach
-    pub axis_accelerations: [f32; 4],    // Acceleration in mm/s² per axis
-    pub axis_target_positions: [i32; 4], // Target position in pulses (signed for negative positions)
-    pub axis_position_mode: [bool; 4],   // True if axis is in position mode (auto-stop at target)
-    pub last_ramp_update: Instant,       // For software ramp timing
+    pub axis_speeds: [i32; 4],
+    pub axis_target_speeds: [i32; 4],
+    pub axis_accelerations: [f32; 4],
+    pub axis_target_positions: [i32; 4],
+    pub axis_position_mode: [bool; 4],
+    /// Ignore select_end_counter for N cycles after starting a new move
+    /// (hardware needs time to process go_counter and clear the old signal)
+    pub axis_position_ignore_cycles: [u8; 4],
+
+    // Hardware ramp control
+    pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,
+    pub pto_subdevice_indices: [usize; 2],
 
     // Homing state
-    pub axis_homing_phase: [HomingPhase; 4],      // Current homing phase per axis
-    pub axis_homing_retract_target: [i32; 4],     // Target position for retract phase (pulses)
+    pub axis_homing_phase: [HomingPhase; 4],
+    pub axis_homing_retract_target: [i32; 4],
+
+    // Driver alarm state (CL75t alarm pins)
+    /// true = alarm active (axis stopped), per axis
+    pub axis_alarm_active: [bool; 4],
+
+    // Debug logging
+    pub last_debug_log: Option<Instant>,
+}
+
+impl std::fmt::Debug for BbmAutomatikV2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BbmAutomatikV2")
+    }
 }
 
 impl Machine for BbmAutomatikV2 {
@@ -175,6 +215,13 @@ impl BbmAutomatikV2 {
             axis_target_positions: self.axis_target_positions,
             axis_position_mode: self.axis_position_mode,
             axis_homing_active: homing_active,
+            axis_soft_limit_max: [
+                soft_limits::max_position_mm(0),
+                soft_limits::max_position_mm(1),
+                soft_limits::max_position_mm(2),
+                soft_limits::max_position_mm(3),
+            ],
+            axis_alarm_active: self.axis_alarm_active,
         }
     }
 
@@ -207,8 +254,7 @@ impl BbmAutomatikV2 {
     /// Emit live values to UI
     pub fn emit_live_values(&mut self) {
         let event = self.get_live_values().build();
-        self.namespace
-            .emit(BbmAutomatikV2Events::LiveValues(event));
+        self.namespace.emit(BbmAutomatikV2Events::LiveValues(event));
     }
 
     /// Set a digital output
@@ -238,7 +284,7 @@ impl BbmAutomatikV2 {
         }
     }
 
-    /// Stop all axes (set speed to 0, cancel all homings)
+    /// Stop all axes - hardware immediate stop
     pub fn stop_all_axes(&mut self) {
         for i in 0..self.axis_speeds.len() {
             // Cancel homing if active
@@ -249,12 +295,18 @@ impl BbmAutomatikV2 {
             self.axis_speeds[i] = 0;
             self.axis_target_speeds[i] = 0;
             self.axis_position_mode[i] = false;
-            self.axes[i].set_frequency(0);
+
+            // Hardware: disble_ramp breaks Travel Distance Control
+            let mut output = self.axes[i].get_output();
+            output.disble_ramp = true;
+            output.go_counter = false;
+            output.frequency_value = 0;
+            self.axes[i].set_output(output);
         }
         self.emit_state();
     }
 
-    /// Stop single axis (also cancels homing if active)
+    /// Stop single axis - hardware immediate stop (also cancels homing if active)
     pub fn stop_axis(&mut self, index: usize) {
         if index < self.axis_speeds.len() {
             // Cancel homing if active
@@ -265,184 +317,238 @@ impl BbmAutomatikV2 {
             self.axis_speeds[index] = 0;
             self.axis_target_speeds[index] = 0;
             self.axis_position_mode[index] = false;
-            self.axes[index].set_frequency(0);
+
+            // Hardware: disble_ramp breaks Travel Distance Control
+            let mut output = self.axes[index].get_output();
+            output.disble_ramp = true;
+            output.go_counter = false;
+            output.frequency_value = 0;
+            self.axes[index].set_output(output);
+
             self.emit_state();
         }
     }
 
     // ============ Speed/Acceleration Functions ============
 
-    /// Set target axis speed in mm/s (software ramp will handle transition)
+    /// Set target axis speed in mm/s (hardware ramp handles transition)
     /// Positive = forward, Negative = backward
     /// For linear axes with ball screw
     pub fn set_axis_speed_mm_s(&mut self, index: usize, mm_per_s: f32) {
         if index < self.axis_target_speeds.len() {
             let hz = mechanics::mm_per_s_to_hz(mm_per_s);
             self.axis_target_speeds[index] = hz;
+            // Hardware ramp accelerates/brakes automatically to target
             self.emit_state();
-            tracing::info!(
-                "[BbmAutomatikV2] Axis {} target speed set: {:.1} mm/s = {} Hz (accel: {:.1} mm/s²)",
-                index,
-                mm_per_s,
-                hz,
-                self.axis_accelerations[index]
-            );
         }
     }
 
-    /// Set target axis speed in RPM (software ramp will handle transition)
+    /// Set target axis speed in RPM (hardware ramp handles transition)
     /// For rotation axes without ball screw (e.g., Bürste)
     pub fn set_axis_speed_rpm(&mut self, index: usize, rpm: f32) {
         if index < self.axis_target_speeds.len() {
             let hz = mechanics::rpm_to_hz(rpm);
             self.axis_target_speeds[index] = hz;
             self.emit_state();
-            tracing::info!(
-                "[BbmAutomatikV2] Axis {} target speed set: {:.1} RPM = {} Hz",
-                index,
-                rpm,
-                hz
-            );
         }
     }
 
-    /// Set axis acceleration in mm/s²
+    /// Set axis acceleration in mm/s² - writes ramp time constants via SDO
     pub fn set_axis_acceleration(&mut self, index: usize, accel_mm_s2: f32) {
         if index < self.axis_accelerations.len() {
-            // Clamp acceleration to reasonable range (1-500 mm/s²)
-            let clamped = accel_mm_s2.clamp(1.0, 500.0);
+            let clamped = accel_mm_s2.clamp(4.0, 500.0);
             self.axis_accelerations[index] = clamped;
+
+            // Calculate ramp time constants for hardware
+            let accel_hz_s = clamped * mechanics::PULSES_PER_MM;
+            let base_freq = 5000.0_f32;
+            let rising_ms = ((base_freq / accel_hz_s) * 1000.0) as u16;
+            let falling_ms = rising_ms; // Same as rising to avoid step loss from aggressive braking
+
+            // SDO-Write to the correct EL2522
+            // NOTE: SdoWriteU16Fn returns () - errors are handled inside the callback.
+            // If SDO write fails, the hardware keeps the old ramp values.
+            if let Some(sdo_write) = &self.sdo_write_u16 {
+                // Which EL2522? Axis 0,1 = EL2522#1, Axis 2,3 = EL2522#2
+                let el2522_idx = if index < 2 { 0 } else { 1 };
+                let subdevice_index = self.pto_subdevice_indices[el2522_idx];
+
+                // PTO Base Index: Channel 1 = 0x8000, Channel 2 = 0x8010
+                let pto_base = if index % 2 == 0 { 0x8000u16 } else { 0x8010u16 };
+
+                tracing::debug!(
+                    "[BbmAutomatikV2] SDO write axis {}: ramp rising={}ms falling={}ms (accel={:.0} mm/s²)",
+                    index,
+                    rising_ms,
+                    falling_ms,
+                    clamped
+                );
+
+                // Rising ramp (0x14)
+                sdo_write(subdevice_index, pto_base, 0x14, rising_ms);
+                // Falling ramp (0x15)
+                sdo_write(subdevice_index, pto_base, 0x15, falling_ms);
+            } else {
+                tracing::warn!(
+                    "[BbmAutomatikV2] SDO write not available - acceleration change will not take effect"
+                );
+            }
             self.emit_state();
-            tracing::info!(
-                "[BbmAutomatikV2] Axis {} acceleration set: {:.1} mm/s²",
-                index,
-                clamped
-            );
         }
     }
 
-    /// Move to a target position in mm (supports negative positions)
-    /// This starts the motor and auto-stops when position is reached
+    /// Move to a target position in mm using hardware Travel Distance Control
+    /// Hardware ramps up, brakes, and stops exactly at target
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
         if index < self.axes.len() {
-            // Round to nearest integer mm to avoid float accumulation errors
-            let target_pulses = (position_mm.round() * mechanics::PULSES_PER_MM) as i32;
-            let current_pulses = self.axes[index].get_position() as i32;
-
-            // Determine direction based on current vs target position
-            let speed_hz = if target_pulses > current_pulses {
-                mechanics::mm_per_s_to_hz(speed_mm_s.abs())
+            // Clamp to soft limits
+            let clamped_mm = if let Some(max) = soft_limits::max_position_mm(index) {
+                position_mm.clamp(soft_limits::MIN_MM, max)
             } else {
-                mechanics::mm_per_s_to_hz(-speed_mm_s.abs())
+                position_mm
             };
 
-            // Set position mode
+            if (clamped_mm - position_mm).abs() > 0.1 {
+                tracing::warn!(
+                    "[BbmAutomatikV2] Axis {} position clamped: {:.1} mm -> {:.1} mm (soft limit)",
+                    index,
+                    position_mm,
+                    clamped_mm
+                );
+            }
+
+            let target_pulses = (clamped_mm.round() * mechanics::PULSES_PER_MM) as i32;
+            let speed_hz = mechanics::mm_per_s_to_hz(speed_mm_s.abs());
+
+            // Determine direction
+            let current_pulses = self.axes[index].get_position() as i32;
+            let direction = if target_pulses > current_pulses {
+                1
+            } else {
+                -1
+            };
+
+            // Position mode activate
             self.axis_target_positions[index] = target_pulses;
             self.axis_position_mode[index] = true;
+            // Ignore select_end_counter for 5 cycles (~3.5ms at 700µs cycle)
+            // so hardware has time to process new go_counter and clear stale signal
+            self.axis_position_ignore_cycles[index] = 5;
 
-            // Set target speed (software ramp will handle acceleration)
-            self.axis_target_speeds[index] = speed_hz;
-
-            // Set target counter value in hardware (cast back to u32 for hardware)
+            // Hardware output: go_counter + target position + speed
+            // In Travel Distance Control mode, the EL2522 hardware automatically
+            // determines direction by comparing target_counter_value vs current position.
+            // frequency_value must be POSITIVE (magnitude only) - sign is NOT used for direction.
             let mut output = self.axes[index].get_output();
+            output.go_counter = true;
+            output.disble_ramp = false;
+            output.frequency_value = speed_hz;
             output.target_counter_value = target_pulses as u32;
             self.axes[index].set_output(output);
+
+            // Sync software state (keep sign for UI display)
+            self.axis_target_speeds[index] = speed_hz * direction;
+            self.axis_speeds[index] = speed_hz * direction;
 
             self.emit_state();
             tracing::info!(
                 "[BbmAutomatikV2] Axis {} moving to {:.0} mm ({} pulses) at {:.1} mm/s",
                 index,
-                position_mm.round(),
+                clamped_mm.round(),
                 target_pulses,
                 speed_mm_s
             );
         }
     }
 
-    /// Software ramp: update axis_speeds towards target_speeds based on acceleration
-    /// Called from act() loop at ~30Hz
-    /// Returns true if any speed changed (for state emission)
-    pub fn update_software_ramp(&mut self, dt_secs: f32) -> bool {
+    /// Hardware ramp monitor: watches hardware status, does not set speeds
+    /// Replaces the old update_software_ramp completely
+    pub fn update_hardware_monitor(&mut self) -> bool {
         let mut changed = false;
         for i in 0..self.axis_speeds.len() {
-            // Check if we're in position mode
+            let input = self.axes[i].get_input();
+
+            // ====== POSITION MODE: Target detection ======
             if self.axis_position_mode[i] {
-                let current_pos = self.axes[i].get_position() as i32;  // Interpret as signed
-                let target_pos = self.axis_target_positions[i];
-                let current_speed_hz = self.axis_speeds[i].abs() as f32;
-                let accel = self.axis_accelerations[i];
-
-                // Calculate remaining distance in pulses (absolute value)
-                let remaining_pulses = (target_pos - current_pos).abs() as f32;
-
-                // Calculate braking distance: s = v² / (2*a)
-                // Convert: speed is in Hz (pulses/s), accel is in mm/s²
-                // accel in pulses/s² = accel_mm_s2 * PULSES_PER_MM
-                let accel_pulses_s2 = accel * mechanics::PULSES_PER_MM;
-                let braking_distance_pulses = if accel_pulses_s2 > 0.0 {
-                    (current_speed_hz * current_speed_hz) / (2.0 * accel_pulses_s2)
-                } else {
-                    0.0
-                };
-
-                // Add small margin to ensure we stop in time
-                let braking_distance_with_margin = braking_distance_pulses + 5.0;
-
-                // Check if we need to start braking
-                if remaining_pulses <= braking_distance_with_margin && self.axis_target_speeds[i] != 0 {
-                    // Start braking (ramp will handle the deceleration)
+                // Grace period after starting a new move: hardware needs time to
+                // process go_counter and clear the stale select_end_counter signal
+                if self.axis_position_ignore_cycles[i] > 0 {
+                    self.axis_position_ignore_cycles[i] -= 1;
+                } else if input.select_end_counter {
+                    self.axis_speeds[i] = 0;
                     self.axis_target_speeds[i] = 0;
-                    tracing::info!(
-                        "[BbmAutomatikV2] Axis {} starting brake at {} pulses remaining (brake dist: {:.1})",
-                        i,
-                        remaining_pulses as u32,
-                        braking_distance_pulses
-                    );
-                }
-
-                // Check if we've actually stopped and reached target
-                let moving_forward = self.axis_speeds[i] > 0;
-                let reached = if moving_forward {
-                    current_pos >= target_pos
-                } else if self.axis_speeds[i] < 0 {
-                    current_pos <= target_pos
-                } else {
-                    // Speed is 0, check if we're close enough (within 2 pulses tolerance)
-                    remaining_pulses <= 2.0
-                };
-
-                if reached && self.axis_speeds[i] == 0 {
-                    // Position reached and stopped
                     self.axis_position_mode[i] = false;
-                    tracing::info!(
-                        "[BbmAutomatikV2] Axis {} reached target {} pulses (current: {})",
-                        i,
-                        target_pos,
-                        current_pos
-                    );
+
+                    // Reset go_counter
+                    let mut output = self.axes[i].get_output();
+                    output.go_counter = false;
+                    output.frequency_value = 0;
+                    self.axes[i].set_output(output);
+
+                    changed = true;
+                    let actual_pos = self.axes[i].get_position() as i32;
+                    let target_pos = self.axis_target_positions[i];
+                    let deviation = (actual_pos - target_pos).abs();
+                    if deviation > 2 {
+                        tracing::warn!(
+                            "[Axis {}] STEP LOSS DETECTED: target={} actual={} deviation={} pulses ({:.2} mm)",
+                            i,
+                            target_pos,
+                            actual_pos,
+                            deviation,
+                            deviation as f32 / mechanics::PULSES_PER_MM
+                        );
+                    } else {
+                        tracing::info!(
+                            "[Axis {}] Target reached: {} pulses (actual: {}, deviation: {})",
+                            i,
+                            target_pos,
+                            actual_pos,
+                            deviation
+                        );
+                    }
                 }
             }
 
-            let current = self.axis_speeds[i];
-            let target = self.axis_target_speeds[i];
+            // ====== JOG MODE: Send speed directly to hardware ======
+            if !self.axis_position_mode[i] {
+                // Check soft limits during JOG
+                if let Some(max_mm) = soft_limits::max_position_mm(i) {
+                    let current_mm =
+                        self.axes[i].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
+                    let target = self.axis_target_speeds[i];
 
-            if current != target {
-                // Convert acceleration from mm/s² to Hz/s
-                let accel_hz_per_s = self.axis_accelerations[i] * mechanics::PULSES_PER_MM;
-                let delta_hz = ((accel_hz_per_s * dt_secs) as i32).max(1); // At least 1 Hz step
+                    // Stop if at max and moving positive, or at min and moving negative
+                    if (current_mm >= max_mm && target > 0)
+                        || (current_mm <= soft_limits::MIN_MM && target < 0)
+                    {
+                        if self.axis_target_speeds[i] != 0 {
+                            self.axis_target_speeds[i] = 0;
+                            tracing::warn!(
+                                "[BbmAutomatikV2] Axis {} soft limit reached at {:.1} mm - stopping",
+                                i,
+                                current_mm
+                            );
+                        }
+                    }
+                }
 
-                // Move towards target
-                let new_speed = if current < target {
-                    // Accelerating
-                    (current + delta_hz).min(target)
-                } else {
-                    // Decelerating
-                    (current - delta_hz).max(target)
-                };
+                let target = self.axis_target_speeds[i];
+                if self.axis_speeds[i] != target {
+                    // Send new target speed to hardware
+                    // Hardware ramp accelerates/brakes automatically
+                    let mut output = self.axes[i].get_output();
+                    output.disble_ramp = false;
+                    output.go_counter = false;
+                    output.frequency_value = target;
+                    self.axes[i].set_output(output);
+                    self.axis_speeds[i] = target;
+                    changed = true;
+                }
+            }
 
-                // Apply new speed to hardware
-                self.axis_speeds[i] = new_speed;
-                self.axes[i].set_frequency(new_speed);
+            // Status tracking for UI
+            if input.ramp_active {
                 changed = true;
             }
         }
@@ -467,20 +573,88 @@ impl BbmAutomatikV2 {
         self.emit_state();
     }
 
-    /// Check if door sensors indicate safe (both closed)
+    /// Check if door sensor indicates safe (closed)
     pub fn are_doors_closed(&self) -> bool {
-        let input1 = self.digital_inputs[inputs::TUER_1].get_value().unwrap_or(false);
-        let input2 = self.digital_inputs[inputs::TUER_2].get_value().unwrap_or(false);
-        // Assuming normally closed sensors (true = door closed)
-        input1 && input2
+        self.digital_inputs[inputs::TUER]
+            .get_value()
+            .unwrap_or(false)
+    }
+
+    /// Check driver alarm pins and emergency-stop all axes if triggered
+    /// Arduino equivalent: checkDriverAlarms() in BBMx22_Automatik_Code.ino v3.2
+    pub fn check_driver_alarms(&mut self) -> bool {
+        let alarm_inputs = [
+            (axes::MT, inputs::ALARM_MT),
+            (axes::SCHIEBER, inputs::ALARM_SCHIEBER),
+            (axes::DRUECKER, inputs::ALARM_DRUECKER),
+        ];
+
+        for &(axis, input_idx) in &alarm_inputs {
+            let raw = self.digital_inputs[input_idx]
+                .get_value()
+                .unwrap_or(!ALARM_ACTIVE_LOW);
+            let is_alarm = if ALARM_ACTIVE_LOW { !raw } else { raw };
+
+            if is_alarm && !self.axis_alarm_active[axis] {
+                tracing::error!(
+                    "[BbmAutomatikV2] !!! ALARM: Axis {} driver alarm triggered !!!",
+                    axis
+                );
+                self.axis_alarm_active[axis] = true;
+                self.stop_all_axes();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Reset all driver alarm states (only if physical alarm pins are inactive)
+    pub fn reset_alarms(&mut self) {
+        let had_alarm = self.axis_alarm_active.iter().any(|&a| a);
+        if !had_alarm {
+            return;
+        }
+
+        // Check if any physical alarm is still active before resetting
+        let alarm_inputs = [
+            (axes::MT, inputs::ALARM_MT),
+            (axes::SCHIEBER, inputs::ALARM_SCHIEBER),
+            (axes::DRUECKER, inputs::ALARM_DRUECKER),
+        ];
+
+        for &(axis, input_idx) in &alarm_inputs {
+            let raw = self.digital_inputs[input_idx]
+                .get_value()
+                .unwrap_or(!ALARM_ACTIVE_LOW);
+            let still_alarm = if ALARM_ACTIVE_LOW { !raw } else { raw };
+
+            if still_alarm {
+                tracing::warn!(
+                    "[BbmAutomatikV2] Cannot reset alarms - Axis {} alarm still active on hardware",
+                    axis
+                );
+                self.emit_state();
+                return;
+            }
+        }
+
+        self.axis_alarm_active = [false; 4];
+        tracing::info!("[BbmAutomatikV2] All alarms reset");
+        self.emit_state();
     }
 
     /// Check if axis is at home position (reference switch active)
     pub fn is_axis_homed(&self, axis: usize) -> bool {
         match axis {
-            axes::MT => self.digital_inputs[inputs::REF_MT].get_value().unwrap_or(false),
-            axes::SCHIEBER => self.digital_inputs[inputs::REF_SCHIEBER].get_value().unwrap_or(false),
-            axes::DRUECKER => self.digital_inputs[inputs::REF_DRUECKER].get_value().unwrap_or(false),
+            axes::MT => self.digital_inputs[inputs::REF_MT]
+                .get_value()
+                .unwrap_or(false),
+            axes::SCHIEBER => self.digital_inputs[inputs::REF_SCHIEBER]
+                .get_value()
+                .unwrap_or(false),
+            axes::DRUECKER => self.digital_inputs[inputs::REF_DRUECKER]
+                .get_value()
+                .unwrap_or(false),
             _ => false, // Bürste has no home switch
         }
     }
@@ -491,7 +665,10 @@ impl BbmAutomatikV2 {
     /// Sequence: 1) Move negative until sensor, 2) Retract 2mm, 3) Set position to 0
     pub fn start_homing(&mut self, index: usize) {
         if index >= self.axes.len() || index == axes::BUERSTE {
-            tracing::warn!("[BbmAutomatikV2] Cannot home axis {} (invalid or rotation axis)", index);
+            tracing::warn!(
+                "[BbmAutomatikV2] Cannot home axis {} (invalid or rotation axis)",
+                index
+            );
             return;
         }
 
@@ -540,11 +717,16 @@ impl BbmAutomatikV2 {
                         // Stop the axis
                         self.axis_speeds[i] = 0;
                         self.axis_target_speeds[i] = 0;
-                        self.axes[i].set_frequency(0);
+                        let mut output = self.axes[i].get_output();
+                        output.disble_ramp = false;
+                        output.go_counter = false;
+                        output.frequency_value = 0;
+                        self.axes[i].set_output(output);
 
                         // Calculate retract target: current position + 2mm
                         let current_pos = self.axes[i].get_position() as i32;
-                        let retract_pulses = (homing::RETRACT_DISTANCE_MM * mechanics::PULSES_PER_MM) as i32;
+                        let retract_pulses =
+                            (homing::RETRACT_DISTANCE_MM * mechanics::PULSES_PER_MM) as i32;
                         self.axis_homing_retract_target[i] = current_pos + retract_pulses;
 
                         // Start Phase 2: Retract
@@ -571,7 +753,11 @@ impl BbmAutomatikV2 {
                         // Stop the axis
                         self.axis_speeds[i] = 0;
                         self.axis_target_speeds[i] = 0;
-                        self.axes[i].set_frequency(0);
+                        let mut output = self.axes[i].get_output();
+                        output.disble_ramp = false;
+                        output.go_counter = false;
+                        output.frequency_value = 0;
+                        self.axes[i].set_output(output);
 
                         // Start Phase 3: Set zero
                         self.axis_homing_phase[i] = HomingPhase::SettingZero;

@@ -1315,3 +1315,503 @@ pub fn clear_set_counter(&self) {
 3. `bd0ef67f` - Move BBM reset into edit popover
 4. `56345158` - Add header reset option to EditValue
 5. `947b0c1c` - Adjust BBM axis label and rotation input size
+
+---
+
+## Session 2026-02-06 [Claude Opus 4.6]: EL2522 Hardware Travel Distance Control
+
+### Uebersicht
+
+Implementierung des EL2522 Hardware Travel Distance Control Plans - Ersetzung der unzuverlaessigen Software-Bremslogik durch die eingebaute Hardware-Rampe der EL2522 fuer schrittverlustreies Bremsen.
+
+### 1. HAL-Erweiterung (ethercat-hal)
+
+~09:00 [Claude Opus 4.6]
+
+- `ethercat-hal/src/io/pulse_train_output.rs`: `go_counter: bool` zu `PulseTrainOutputOutput` hinzugefuegt
+- `ethercat-hal/src/devices/el2522.rs`: `go_counter` in `set_output()` und `get_output()` durchgereicht
+- `select_end_counter` war bereits in `PulseTrainOutputInput` vorhanden
+
+### 2. SDO-Write Infrastruktur (server)
+
+~09:30 [Claude Opus 4.6]
+
+- `server/src/app_state.rs`: `SdoWriteU16` Variante zu `HotThreadMessage` hinzugefuegt
+- `server/src/loop.rs`: Handler fuer `SdoWriteU16` implementiert (SDO-Write via EtherCrab)
+- `machines/src/lib.rs`: `SdoWriteU16Fn` Callback-Typ (`Arc<dyn Fn(usize, u16, u8, u16) + Send + Sync>`) und `sdo_write_u16` Feld in `MachineNewParams`
+- `server/src/ethercat/setup.rs`: Callback-Konstruktion die `HotThreadMessage::SdoWriteU16` sendet
+- `server/src/main.rs`: `sdo_write_u16: None` fuer Serial-Maschinen
+
+### 3. get_ethercat_device erweitert
+
+~10:00 [Claude Opus 4.6]
+
+- `machines/src/lib.rs`: Return-Typ von 2-Tuple auf 3-Tuple erweitert: `(Arc<RwLock<T>>, &SubDeviceRef, usize)` - der `usize` ist der `subdevice_index`
+- Alle Aufrufer aktualisiert: `bbm_automatik_v2/new.rs`, `schneidemaschine_v0/new.rs`, `buffer1/new.rs`
+
+### 4. CoE-Konfiguration geaendert
+
+~10:30 [Claude Opus 4.6]
+
+- `machines/src/bbm_automatik_v2/new.rs` und `machines/src/schneidemaschine_v0/new.rs`:
+  - `ramp_function_active: true` (vorher false)
+  - `ramp_time_constant_rising: 2500` (100 mm/s² default)
+  - `ramp_time_constant_falling: 2250` (10% steiler per Beckhoff-Vorgabe)
+
+### 5. Maschinen-Structs erweitert
+
+~11:00 [Claude Opus 4.6]
+
+- **BbmAutomatikV2:** `last_ramp_update` entfernt, `sdo_write_u16` und `pto_subdevice_indices: [usize; 2]` hinzugefuegt
+- **SchneidemaschineV0:** Gleiche Aenderungen, plus `axis_target_positions` von `[u32; 2]` auf `[i32; 2]` geaendert (signed fuer negative Positionen)
+
+### 6. Software-Rampe durch Hardware-Monitor ersetzt
+
+~11:30 [Claude Opus 4.6]
+
+- `update_software_ramp()` komplett entfernt und durch `update_hardware_monitor()` ersetzt
+- Position Mode: Prueft `input.select_end_counter` -> stoppt automatisch wenn Hardware Ziel meldet
+- JOG Mode: Setzt nur Zielfrequenz, Hardware rampt selbststaendig
+- `act.rs` in beiden Maschinen: Software-Ramp-Timing entfernt, nur noch Hardware-Monitor Aufruf
+
+### 7. Position Mode umgeschrieben (move_to_position_mm)
+
+~12:00 [Claude Opus 4.6]
+
+- `go_counter = true` aktiviert Travel Distance Control
+- `disble_ramp = false` nutzt Hardware-Rampe
+- `target_counter_value` auf Zielposition gesetzt
+- Richtung wird aus aktuelle vs. Zielposition berechnet
+
+### 8. Stop-Funktionen angepasst
+
+~12:30 [Claude Opus 4.6]
+
+- `stop_axis` und `stop_all_axes`: `disble_ramp = true` fuer Sofort-Stop, `go_counter = false`
+
+### 9. Dynamische Beschleunigung per SDO
+
+~13:00 [Claude Opus 4.6]
+
+- `set_axis_acceleration`: Berechnet Ramp-Zeiten und sendet SDO-Write an richtige EL2522
+- Formel: `rising_ms = (base_freq / (accel_mm_s2 * PULSES_PER_MM)) * 1000`
+- `falling_ms = rising_ms * 0.9` (10% steiler)
+
+### Bugs und Loesungen
+
+#### Bug 1: Build-Fehler - el2521.rs fehlte go_counter
+
+~14:00 [Claude Opus 4.6]
+
+- **Symptom:** GitHub Workflow "Rust" schlug fehl: `error[E0063]: missing field 'go_counter' in initializer of 'PulseTrainOutputOutput'`
+- **Ursache:** `ethercat-hal/src/devices/el2521.rs` implementiert auch `PulseTrainOutputDevice` und hatte das neue `go_counter` Feld nicht
+- **Loesung:** `go_counter` in `set_output()` und `get_output()` von el2521.rs hinzugefuegt
+- **Betroffene Datei:** `ethercat-hal/src/devices/el2521.rs`
+
+#### Bug 2: cargo nicht lokal verfuegbar
+
+- **Symptom:** `cargo check` schlug fehl auf Windows
+- **Ursache:** cargo nicht im PATH
+- **Loesung:** Builds laufen immer ueber GitHub Workflows (`.github/workflows/rust.yml`), nicht lokal
+
+### Konzept-Erklaerung: Hardware vs Software Rampe
+
+| Modus | `disble_ramp` | `go_counter` | Verhalten |
+|-------|--------------|--------------|-----------|
+| JOG | `false` | `false` | Hardware rampt zur Zielfrequenz, kein Positionsziel |
+| Position | `false` | `true` | Hardware rampt + bremst + stoppt exakt am Ziel |
+| Stop | `true` | `false` | Sofort-Stop (Notfall/E-Stop) |
+
+### Geaenderte Dateien (komplett)
+
+| Datei | Aenderung |
+|-------|-----------|
+| `ethercat-hal/src/io/pulse_train_output.rs` | `go_counter` zu Output hinzugefuegt |
+| `ethercat-hal/src/devices/el2522.rs` | `go_counter` durchgereicht |
+| `ethercat-hal/src/devices/el2521.rs` | `go_counter` durchgereicht (Bug-Fix) |
+| `server/src/app_state.rs` | `SdoWriteU16` Variante |
+| `server/src/loop.rs` | SDO-Write Handler |
+| `machines/src/lib.rs` | `SdoWriteU16Fn`, `sdo_write_u16` in Params, 3-Tuple `get_ethercat_device` |
+| `server/src/ethercat/setup.rs` | SDO-Write Callback Konstruktion |
+| `server/src/main.rs` | `sdo_write_u16: None` |
+| `machines/src/bbm_automatik_v2/mod.rs` | Hardware-Monitor, Position Mode, Stop, SDO-Acceleration |
+| `machines/src/bbm_automatik_v2/new.rs` | CoE-Config, neue Felder |
+| `machines/src/bbm_automatik_v2/act.rs` | Software-Ramp entfernt |
+| `machines/src/schneidemaschine_v0/mod.rs` | Gleiche Aenderungen |
+| `machines/src/schneidemaschine_v0/new.rs` | CoE-Config, neue Felder |
+| `machines/src/schneidemaschine_v0/act.rs` | Software-Ramp entfernt |
+| `machines/src/schneidemaschine_v0/api.rs` | `axis_target_positions` Typ i32 |
+| `machines/src/buffer1/new.rs` | 3-Tuple Destructuring |
+
+### Status
+
+- Build laeuft auf GitHub Actions (nach el2521.rs Fix)
+- Hardware-Test steht aus
+
+### Naechste Schritte
+
+- [x] Build-Ergebnis pruefen (GitHub Workflow) - erledigt
+- [x] Hardware-Test: Position Mode mit `select_end_counter` - erledigt 2026-02-09
+- [x] Hardware-Test: JOG Mode mit Hardware-Rampe - erledigt 2026-02-09
+- [ ] Hardware-Test: Verschiedene Beschleunigungen per SDO
+
+---
+
+## Git Branch Workflow (ab 2026-02-09)
+
+### Warum Branches?
+
+**Vorher:** Alle Aenderungen direkt auf `master` -> bei Fehlern ist sofort die Produktion betroffen.
+
+**Jetzt:** Feature-Branches fuer neue Entwicklungen -> `master` bleibt immer stabil.
+
+### Konzept
+
+```
+master (stabil, getestet)
+  |
+  +-- feature/hardware-travel-distance-control  (aktuelle Entwicklung)
+  |
+  +-- feature/naechstes-feature                 (zukuenftig)
+```
+
+- **`master`**: Nur getesteter, funktionierender Code. Kann jederzeit deployed werden.
+- **`feature/*`**: Neue Entwicklungen. Koennen kaputt sein, ohne master zu beeinflussen.
+- **Merge**: Wenn ein Feature fertig und getestet ist, wird es in `master` gemerged.
+
+### Workflow
+
+1. **Neues Feature starten:**
+   ```bash
+   git checkout master
+   git checkout -b feature/mein-neues-feature
+   ```
+
+2. **Entwickeln und committen** (auf dem Feature-Branch):
+   ```bash
+   git add <dateien>
+   git commit -m "Beschreibung"
+   git push origin feature/mein-neues-feature
+   ```
+
+3. **Feature-Branch deployen** (zum Testen auf Hardware):
+   ```bash
+   gh workflow run fast-deploy.yml --ref feature/mein-neues-feature
+   ```
+
+4. **Feature fertig -> in master mergen:**
+   ```bash
+   git checkout master
+   git merge feature/mein-neues-feature
+   git push origin master
+   ```
+
+5. **Master deployen** (stabile Version):
+   ```bash
+   gh workflow run fast-deploy.yml --ref master
+   ```
+
+### Deploy-Workflow (fast-deploy.yml)
+
+Der Workflow unterstuetzt beliebige Branches:
+- Holt den neuesten Stand mit `git fetch origin`
+- Wechselt zum Branch mit `git checkout "$BRANCH"`
+- Setzt auf den neuesten Remote-Stand mit `git reset --hard "origin/$BRANCH"`
+- Baut mit `nixos-rebuild switch`
+
+**Wichtig:** Der Server laeuft immer auf dem zuletzt deployte Branch. Nach einem Deploy den aktuellen Branch pruefen:
+```bash
+ssh qitech@nixos "cd /home/qitech/control && git branch --show-current"
+```
+
+### UI nach Deploy neu starten
+
+Das Electron UI ist eine Desktop-App (kein systemd Service). Nach einem Deploy muss es manuell neu gestartet werden:
+
+```bash
+# Via SSH auf dem Server:
+ssh qitech@nixos "pkill -f qitech-control-electron"
+# GNOME Autostart startet die App automatisch neu
+```
+
+Oder im Deploy-Workflow: Der `pkill` Befehl wird nach dem `nixos-rebuild switch` ausgefuehrt.
+
+---
+
+## Session 2026-02-09: Step Loss Fix & Branch Workflow
+
+### Uebersicht
+
+Kritischer Bug-Fix fuer Schrittverluste bei Hardware Travel Distance Control. Drei separate Probleme identifiziert und behoben durch Multi-Agent-Analyse.
+
+### 1. txpdo_toggle Bug (KRITISCH)
+
+~10:00 [Claude Opus 4.6]
+
+**Problem:** `PtoStatus::read()` und `EncStatus::read()` in `ethercat-hal/src/pdo/el252x.rs` hatten einen Early-Return wenn `txpdo_toggle == false`. Das bedeutete: **50% aller Hardware-Status-Reads wurden uebersprungen.**
+
+**Auswirkung:** `select_end_counter` (Ziel erreicht), `ramp_active`, `error` etc. wurden nur bei jedem zweiten EtherCAT-Zyklus gelesen.
+
+**Fix:**
+```rust
+// VORHER (fehlerhaft):
+fn read(&mut self, bits: &BitSlice<u8, Lsb0>) {
+    self.txpdo_toggle = bits[8 + 7];
+    if !self.txpdo_toggle {
+        return;  // 50% der Daten ignoriert!
+    }
+    self.select_end_counter = bits[0];
+    // ...
+}
+
+// NACHHER (korrekt):
+fn read(&mut self, bits: &BitSlice<u8, Lsb0>) {
+    self.select_end_counter = bits[0];
+    self.ramp_active = bits[1];
+    // ... alle Felder lesen
+    self.txpdo_toggle = bits[8 + 7];
+}
+```
+
+**Datei:** `ethercat-hal/src/pdo/el252x.rs`
+**Tests:** 2 neue Tests hinzugefuegt (`test_pto_status_toggle_false`, `test_enc_status_toggle_false`)
+
+### 2. Aggressive Bremsrampe
+
+~10:30 [Claude Opus 4.6]
+
+**Problem:** `falling_ms = rising_ms * 0.9` (10% steilere Bremsrampe) verursachte Schrittverluste beim Bremsen.
+
+**Fix:** `falling_ms = rising_ms` (gleiche Rampe fuer Beschleunigen und Bremsen)
+
+**Dateien:**
+- `machines/src/bbm_automatik_v2/mod.rs`
+- `machines/src/schneidemaschine_v0/mod.rs`
+
+### 3. JOG-Regression durch txpdo_toggle Fix
+
+~14:00 [Claude Opus 4.6]
+
+**Problem:** Nach dem txpdo_toggle Fix funktionierte JOG nicht mehr. Ursache: Stale `select_end_counter` von vorherigen Positionsfahrten wurde jetzt sofort erkannt (vorher durch den 50%-Skip maskiert) und brach neue Bewegungen sofort ab.
+
+**Fix:** Grace Period von 5 EtherCAT-Zyklen nach Start einer neuen Positionsfahrt:
+```rust
+// Bei move_to_position_mm:
+self.axis_position_ignore_cycles[index] = 5;
+
+// In update_hardware_monitor:
+if self.axis_position_mode[i] {
+    if self.axis_position_ignore_cycles[i] > 0 {
+        self.axis_position_ignore_cycles[i] -= 1;
+    } else if input.select_end_counter {
+        // Ziel erreicht
+    }
+}
+```
+
+**Dateien:**
+- `machines/src/bbm_automatik_v2/mod.rs` + `new.rs`
+- `machines/src/schneidemaschine_v0/mod.rs` + `new.rs`
+
+### 4. Position Verification (Schrittverlusst-Erkennung)
+
+~10:30 [Claude Opus 4.6]
+
+Nach Erreichen der Zielposition wird die Abweichung geprueft:
+```rust
+let deviation = (actual_pos - target_pos).abs();
+if deviation > 2 {
+    tracing::warn!("[Axis {}] STEP LOSS DETECTED: target={} actual={} deviation={}", ...);
+}
+```
+
+### 5. Deploy-Workflow fuer Feature-Branches
+
+~12:00 [Claude Opus 4.6]
+
+**Problem:** `fast-deploy.yml` nutzte `git pull --ff-only` was fehlschlug wenn der Server auf `master` war aber ein Feature-Branch deployed werden sollte.
+
+**Fix:** Workflow geaendert auf `git fetch` + `git checkout` + `git reset --hard` (siehe Branch Workflow Sektion oben).
+
+### Commits
+
+1. `febcdcb1` - Fix step loss: txpdo_toggle bug, aggressive braking, add position verification
+2. `47523e05` - Fix fast-deploy: support deploying any branch, not just current
+3. `f2cad828` - Fix JOG after position move: add grace period for select_end_counter
+4. `8ff1ca1a` - Fix direction: frequency_value must be positive in TDC mode
+5. `cf614729` - Fix deploy workflow pkill scope
+6. `691ada45` - Deploy workflow fix continued
+7. `da2acb29` - Deploy workflow finalized
+
+### Geaenderte Dateien
+
+| Datei | Aenderung |
+|-------|-----------|
+| `ethercat-hal/src/pdo/el252x.rs` | txpdo_toggle Early-Return entfernt, 2 Tests |
+| `machines/src/bbm_automatik_v2/mod.rs` | Bremsrampe, Position-Verify, Ignore-Cycles |
+| `machines/src/bbm_automatik_v2/new.rs` | `axis_position_ignore_cycles` Init |
+| `machines/src/schneidemaschine_v0/mod.rs` | Gleiche Fixes |
+| `machines/src/schneidemaschine_v0/new.rs` | `axis_position_ignore_cycles` Init |
+| `.github/workflows/fast-deploy.yml` | Branch-Support, pkill-Scope Fix, Server-Restart separiert |
+
+### 6. Direction Fix (frequency_value muss positiv sein)
+
+~15:00 [Claude Opus 4.6]
+
+**Problem:** Motor fuhr nur in eine Richtung (vorwaerts). Rueckwaertsfahrt funktionierte nicht - Motor blieb stehen oder fuhr weiter vorwaerts.
+
+**Ursache:** In `move_to_position_mm()` wurde die Frequenz mit der Richtung multipliziert:
+```rust
+// VORHER (fehlerhaft):
+output.frequency_value = speed_hz * direction;  // direction = -1 bei Rueckwaerts
+```
+
+Im Travel Distance Control Modus (`go_counter = true`) bestimmt die EL2522-Hardware die Fahrtrichtung **automatisch** durch Vergleich von `target_counter_value` mit der aktuellen Position. Ein negativer `frequency_value` kollidierte mit dieser automatischen Richtungssteuerung - die Hardware interpretierte den negativen Wert nicht als "rueckwaerts", sondern als ungueltigen/widerspruchlichen Befehl.
+
+**Fix:** `frequency_value` immer positiv (nur Betrag/Magnitude):
+```rust
+// NACHHER (korrekt):
+output.frequency_value = speed_hz;  // Immer positiv, Hardware bestimmt Richtung
+```
+
+**Dateien:**
+- `machines/src/bbm_automatik_v2/mod.rs`
+- `machines/src/schneidemaschine_v0/mod.rs`
+
+**Commit:** `8ff1ca1a` - Fix direction: frequency_value must be positive in TDC mode
+
+### 7. Deploy-Workflow Fix (pkill zu breit)
+
+~15:30 [Claude Opus 4.6]
+
+**Problem:** `pkill qitech-control-` im Deploy-Workflow war zu breit gefasst und killte nicht nur die Electron-App sondern auch den `qitech-control-server` (systemd Service). Das fuehrte dazu, dass nach einem Deploy der Server kurz offline war.
+
+**Fix:** Zwei separate Schritte statt einem breiten `pkill`:
+1. `pkill -x qitech-control-e` - killt nur die Electron-App (exakter Match)
+2. Separater Server-Restart-Schritt: `sudo systemctl restart qitech-control-server`
+
+**Commits:**
+- `cf614729` - Fix deploy workflow pkill scope
+- `691ada45` - Weiterer Deploy-Workflow Fix
+- `da2acb29` - Deploy-Workflow Finalisierung
+
+### Hardware-Test-Ergebnis
+
+- [x] Position Mode: Funktioniert nach txpdo_toggle Fix
+- [x] JOG Mode: Funktioniert nach Grace-Period Fix
+- [x] Richtung: Vorwaerts und Rueckwaerts funktioniert nach frequency_value Fix
+- [ ] Schrittverlust-Log pruefen (STEP LOSS DETECTED Warnung im Journal)
+- [ ] Verschiedene Beschleunigungen testen
+
+### 8. UI-Verbesserungen (Nachmittag)
+
+~16:00 [Claude Opus 4.6]
+
+Diverse UI-Verbesserungen fuer BBM Automatik V2 auf Basis von Bediener-Feedback.
+
+#### 8.1 JOG-Button Beschriftung
+
+**Aenderung:** Symbole vor den Text verschoben fuer bessere Lesbarkeit auf Touchscreen.
+
+| Vorher | Nachher |
+|--------|---------|
+| `JOG+` | `+ JOG` |
+| `JOG-` | `- JOG` |
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2MotorsPage.tsx`
+
+#### 8.2 Input-Limits angepasst
+
+Eingabefelder auf sinnvolle Bereiche begrenzt (Soft Limits passend zur Mechanik):
+
+| Feld | Vorher | Nachher |
+|------|--------|---------|
+| Schrittweite (Step Size) | 1-1000 mm | 0-200 mm |
+| Sollposition (Target Position) | 0-10000 mm | 0-500 mm |
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2MotorsPage.tsx`
+
+#### 8.3 Endlage-Labels auf Status-Seite
+
+**Aenderung:** Beschriftung der Referenzschalter-Anzeigen von "Referenz" auf "Endlage" geaendert (entspricht der tatsaechlichen Funktion - es sind Endlagenschalter, keine Referenzschalter).
+
+| Vorher | Nachher |
+|--------|---------|
+| Referenz MT | Endlage MT |
+| Referenz Schieber | Endlage Schieber |
+| Referenz Druecker | Endlage Druecker |
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2StatusPage.tsx`
+
+#### 8.4 Geschwindigkeits-Preset Farben (Ampel-System)
+
+Speed-Preset-Buttons auf der Auto-Seite mit Ampelfarben fuer intuitive Bedienung:
+
+| Preset | Farbe | Bedeutung |
+|--------|-------|-----------|
+| Langsam | Gruen | Sicher, Einrichten |
+| Mittel | Gelb | Normal |
+| Schnell | Rot | Volle Geschwindigkeit |
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2AutoPage.tsx`
+
+#### 8.5 Speed-Presets auf Testsequenz-Seite
+
+Gleiche 3 Geschwindigkeits-Buttons (Langsam/Mittel/Schnell mit Gruen/Gelb/Rot) auch auf der Test-Seite hinzugefuegt. Vorher war dort keine Geschwindigkeitsauswahl moeglich.
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2TestPage.tsx`
+
+#### 8.6 Auto STOP-Button Zustandsanzeige
+
+STOP-Button auf der Auto-Seite zeigt jetzt den Zustand visuell an:
+- **Grau** wenn Automatik inaktiv (nichts zum Stoppen)
+- **Rot** wenn Automatik laeuft (aktive Stopp-Moeglichkeit)
+
+Entspricht dem gleichen Pattern wie auf der Motors-Seite.
+
+**Datei:** `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2AutoPage.tsx`
+
+#### 8.7 Default-Geschwindigkeit = Langsam
+
+Beim Laden der Auto- und Test-Seite ist jetzt "Langsam" (gruener Button) vorausgewaehlt statt "Mittel". Sicherheitsmassnahme: Maschine startet immer mit der langsamsten Geschwindigkeit.
+
+**Dateien:**
+- `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2AutoPage.tsx`
+- `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2TestPage.tsx`
+
+#### 8.8 Sidebar-Routing Fix (BBM Automatik -> Auto Tab)
+
+**Problem:** Klick auf "BBM Automatik" in der Sidebar fuehrte zu einer "not found" Seite, weil kein Default-Tab definiert war.
+
+**Loesung:** Neues `defaultTab` Feld in der Maschinen-Konfiguration eingefuehrt. BBM Automatik V2 setzt `defaultTab: "auto"`, so dass der Sidebar-Link direkt zum Auto-Tab navigiert.
+
+**Geaenderte Dateien:**
+- `electron/src/machines/types.ts` - `defaultTab` Feld zu `MachineProperties` Typ hinzugefuegt
+- `electron/src/machines/properties.ts` - `defaultTab: "auto"` fuer BBM Automatik V2 gesetzt
+- `electron/src/machines/useMachines.tsx` - `defaultTab` aus Properties durchgereicht
+- `electron/src/sidebar/SidebarLayout.tsx` - Navigation nutzt `defaultTab` wenn vorhanden
+
+### Commits (UI-Verbesserungen)
+
+8. `93da9016` - UI improvements: JOG labels, input limits, Endlage labels, speed colors
+9. `df804fae` - Add speed presets to Testsequenz page, fix Auto stop button
+10. `6f4fa6ae` - Fix default speed to Langsam, fix sidebar routing to Auto tab
+
+### Tages-Zusammenfassung (2026-02-09)
+
+Alle Commits dieser Session im Ueberblick:
+
+| # | Commit | Beschreibung | Bereich |
+|---|--------|-------------|---------|
+| 1 | `febcdcb1` | Fix step loss: txpdo_toggle bug, aggressive braking, add position verification | Backend/HAL |
+| 2 | `47523e05` | Fix fast-deploy: support deploying any branch | DevOps |
+| 3 | `f2cad828` | Fix JOG after position move: add grace period for select_end_counter | Backend |
+| 4 | `8ff1ca1a` | Fix direction: frequency_value must be positive in TDC mode | Backend |
+| 5 | `cf614729` | Add UI restart to deploy workflow, document branch workflow | DevOps |
+| 6 | `691ada45` | Fix deploy: separate UI restart into own SSH step | DevOps |
+| 7 | `da2acb29` | Fix deploy: pkill pattern was too broad, killed server too | DevOps |
+| 8 | `93da9016` | UI improvements: JOG labels, input limits, Endlage labels, speed colors | Frontend |
+| 9 | `df804fae` | Add speed presets to Testsequenz page, fix Auto stop button | Frontend |
+| 10 | `6f4fa6ae` | Fix default speed to Langsam, fix sidebar routing to Auto tab | Frontend |
+
+**Schwerpunkte:** Hardware Travel Distance Control Bugfixes (1-4), Deploy-Workflow Fixes (5-7), UI-Verbesserungen (8-10)

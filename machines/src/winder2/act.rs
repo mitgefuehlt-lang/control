@@ -62,14 +62,16 @@ impl MachineAct for Winder2 {
                 self.connected_machines.clear();
             }
             MachineMessage::RequestValues(sender) => {
-                sender
-                    .send_blocking(MachineValues {
-                        state: serde_json::to_value(self.build_state_event())
-                            .expect("Failed to serialize state"),
-                        live_values: serde_json::to_value(self.get_live_values())
-                            .expect("Failed to serialize live values"),
-                    })
-                    .expect("Failed to send values");
+                let state = serde_json::to_value(self.build_state_event()).unwrap_or_else(|e| {
+                    tracing::error!("[Winder2] Failed to serialize state: {}", e);
+                    serde_json::Value::Null
+                });
+                let live_values =
+                    serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
+                        tracing::error!("[Winder2] Failed to serialize live values: {}", e);
+                        serde_json::Value::Null
+                    });
+                let _ = sender.send_blocking(MachineValues { state, live_values });
                 sender.close();
             }
         }

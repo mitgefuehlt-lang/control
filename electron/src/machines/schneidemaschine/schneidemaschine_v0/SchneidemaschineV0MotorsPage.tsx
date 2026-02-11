@@ -1,3 +1,4 @@
+import React from "react";
 import { ControlCard } from "@/control/ControlCard";
 import { Page } from "@/components/Page";
 import { ControlGrid } from "@/control/ControlGrid";
@@ -114,7 +115,7 @@ export function SchneidemaschineV0MotorsPage() {
                 onClick={handleStart}
                 disabled={isDisabled || isMotorCommanded}
                 isLoading={isLoading}
-                className="flex-1 h-14 text-base bg-green-600 hover:bg-green-700"
+                className="h-14 flex-1 bg-green-600 text-base hover:bg-green-700"
               >
                 START
               </TouchButton>
@@ -125,7 +126,7 @@ export function SchneidemaschineV0MotorsPage() {
                 onClick={handleMoveToPosition}
                 disabled={isDisabled || isMotorCommanded}
                 isLoading={isLoading}
-                className="flex-1 h-14 text-base bg-blue-600 hover:bg-blue-700"
+                className="h-14 flex-1 bg-blue-600 text-base hover:bg-blue-700"
               >
                 ZUR POSITION
               </TouchButton>
@@ -136,14 +137,14 @@ export function SchneidemaschineV0MotorsPage() {
                 onClick={handleStop}
                 disabled={isDisabled || !isMotorCommanded}
                 isLoading={isLoading}
-                className="flex-1 h-14 text-base"
+                className="h-14 flex-1 text-base"
               >
                 STOP
               </TouchButton>
             </div>
 
             {/* Current Status */}
-            <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+            <div className="grid grid-cols-2 gap-4 border-t pt-4">
               <Label label="Aktuelle Geschwindigkeit">
                 <div className="font-mono text-2xl">
                   {roundToDecimals(currentSpeed, 1)} mm/s
@@ -160,7 +161,7 @@ export function SchneidemaschineV0MotorsPage() {
 
             {/* Running Indicator */}
             {isMotorCommanded && (
-              <div className="text-center text-green-600 font-semibold animate-pulse">
+              <div className="animate-pulse text-center font-semibold text-green-600">
                 Motor läuft
               </div>
             )}
@@ -174,9 +175,10 @@ export function SchneidemaschineV0MotorsPage() {
             <p>Max Geschw.: {MAX_SPEED_MM_S} mm/s</p>
             <p>Max Beschl.: {MAX_ACCELERATION_MM_S2} mm/s²</p>
             <p>Spindel: 10mm Lead</p>
-            <div className="pt-2 border-t mt-2">
+            <div className="mt-2 border-t pt-2">
               <p className="text-xs">
-                Aktuelle Beschl.: {roundToDecimals(currentAcceleration, 0)} mm/s²
+                Aktuelle Beschl.: {roundToDecimals(currentAcceleration, 0)}{" "}
+                mm/s²
               </p>
             </div>
           </div>

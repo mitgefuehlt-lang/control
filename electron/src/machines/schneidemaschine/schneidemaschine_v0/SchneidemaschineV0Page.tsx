@@ -1,3 +1,4 @@
+import React from "react";
 import { Topbar } from "@/components/Topbar";
 import { schneidemaschineV0SerialRoute } from "@/routes/routes";
 

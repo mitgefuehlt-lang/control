@@ -1,6 +1,6 @@
+use crate::bbm_automatik_v2::BbmAutomatikV2;
 use crate::bbm_automatik_v2::api::BbmAutomatikV2Namespace;
 use crate::bbm_automatik_v2::roles;
-use crate::bbm_automatik_v2::BbmAutomatikV2;
 use smol::block_on;
 use std::time::Instant;
 
@@ -11,11 +11,11 @@ use crate::{
 
 use anyhow::Error;
 use ethercat_hal::coe::ConfigurableDevice;
-use ethercat_hal::devices::el1008::{EL1008, EL1008Port, EL1008_IDENTITY_A};
-use ethercat_hal::devices::el2008::{EL2008, EL2008Port, EL2008_IDENTITY_A, EL2008_IDENTITY_B};
+use ethercat_hal::devices::el1008::{EL1008, EL1008_IDENTITY_A, EL1008Port};
+use ethercat_hal::devices::el2008::{EL2008, EL2008_IDENTITY_A, EL2008_IDENTITY_B, EL2008Port};
 use ethercat_hal::devices::el2522::{
-    EL2522, EL2522ChannelConfiguration, EL2522Configuration, EL2522OperatingMode, EL2522Port,
-    EL2522_IDENTITY_A,
+    EL2522, EL2522_IDENTITY_A, EL2522ChannelConfiguration, EL2522Configuration,
+    EL2522OperatingMode, EL2522Port,
 };
 use ethercat_hal::io::digital_input::DigitalInput;
 use ethercat_hal::io::digital_output::DigitalOutput;
@@ -89,7 +89,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
             // ========== Pulse Train Outputs #1 (1x EL2522) ==========
             // Channel 1: MT (Magazin Transporter) - Linear
             // Channel 2: Schieber - Linear
-            let (el2522_1, subdevice_1) = get_ethercat_device::<EL2522>(
+            let (el2522_1, subdevice_1, subdevice_index_1) = get_ethercat_device::<EL2522>(
                 hardware,
                 params,
                 roles::PTO_1,
@@ -97,26 +97,30 @@ impl MachineNewTrait for BbmAutomatikV2 {
             )
             .await?;
 
-            // Configure EL2522 #1 for both channels
+            // Configure EL2522 #1 for both channels - Hardware ramp enabled
             let el2522_1_config = EL2522Configuration {
                 channel1_configuration: EL2522ChannelConfiguration {
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    ramp_function_active: false,
+                    ramp_function_active: true,
                     direct_input_mode: true,
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: true,
                     watchdog_timer_deactive: true,
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
                 channel2_configuration: EL2522ChannelConfiguration {
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    ramp_function_active: false,
+                    ramp_function_active: true,
                     direct_input_mode: true,
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: true,
                     watchdog_timer_deactive: true,
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
                 ..Default::default()
@@ -128,14 +132,12 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 .write_config(&subdevice_1, &el2522_1_config)
                 .await?;
 
-            tracing::info!(
-                "[BbmAutomatikV2] EL2522 #1 configured: Ch1=MT, Ch2=Schieber"
-            );
+            tracing::info!("[BbmAutomatikV2] EL2522 #1 configured: Ch1=MT, Ch2=Schieber");
 
             // ========== Pulse Train Outputs #2 (1x EL2522) ==========
             // Channel 1: Drücker - Linear
             // Channel 2: Bürste - Rotation
-            let (el2522_2, subdevice_2) = get_ethercat_device::<EL2522>(
+            let (el2522_2, subdevice_2, subdevice_index_2) = get_ethercat_device::<EL2522>(
                 hardware,
                 params,
                 roles::PTO_2,
@@ -143,28 +145,32 @@ impl MachineNewTrait for BbmAutomatikV2 {
             )
             .await?;
 
-            // Configure EL2522 #2
+            // Configure EL2522 #2 - Hardware ramp enabled
             let el2522_2_config = EL2522Configuration {
                 // Channel 1: Drücker (Linear)
                 channel1_configuration: EL2522ChannelConfiguration {
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    ramp_function_active: false,
+                    ramp_function_active: true,
                     direct_input_mode: true,
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: true,
                     watchdog_timer_deactive: true,
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
                 // Channel 2: Bürste (Rotation) - no position control needed
                 channel2_configuration: EL2522ChannelConfiguration {
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    ramp_function_active: false,
+                    ramp_function_active: true,
                     direct_input_mode: true,
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: false, // No position control for rotation
                     watchdog_timer_deactive: true,
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
                 ..Default::default()
@@ -176,9 +182,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 .write_config(&subdevice_2, &el2522_2_config)
                 .await?;
 
-            tracing::info!(
-                "[BbmAutomatikV2] EL2522 #2 configured: Ch1=Drücker, Ch2=Bürste"
-            );
+            tracing::info!("[BbmAutomatikV2] EL2522 #2 configured: Ch1=Drücker, Ch2=Bürste");
 
             // Create PulseTrainOutput array for 4 axes
             let axes = [
@@ -204,10 +208,12 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 axes,
                 axis_speeds: [0; 4],
                 axis_target_speeds: [0; 4],
-                axis_accelerations: [100.0; 4],  // Default: 100 mm/s²
+                axis_accelerations: [100.0; 4], // Default: 100 mm/s²
                 axis_target_positions: [0; 4],
                 axis_position_mode: [false; 4],
-                last_ramp_update: Instant::now(),
+                axis_position_ignore_cycles: [0; 4],
+                sdo_write_u16: params.sdo_write_u16.clone(),
+                pto_subdevice_indices: [subdevice_index_1, subdevice_index_2],
                 axis_homing_phase: [
                     crate::bbm_automatik_v2::HomingPhase::Idle,
                     crate::bbm_automatik_v2::HomingPhase::Idle,
@@ -215,6 +221,8 @@ impl MachineNewTrait for BbmAutomatikV2 {
                     crate::bbm_automatik_v2::HomingPhase::Idle,
                 ],
                 axis_homing_retract_target: [0; 4],
+                axis_alarm_active: [false; 4],
+                last_debug_log: None,
             };
 
             machine.emit_state();

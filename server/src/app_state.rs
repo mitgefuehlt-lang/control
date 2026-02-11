@@ -44,6 +44,12 @@ pub enum HotThreadMessage {
     AddEtherCatSetup(EthercatSetup),
     WriteMachineDeviceInfo(MachineDeviceInfoRequest),
     DeleteMachine(MachineIdentificationUnique),
+    SdoWriteU16 {
+        subdevice_index: usize,
+        index: u16,
+        subindex: u8,
+        value: u16,
+    },
 }
 
 use crate::AsyncThreadMessage;

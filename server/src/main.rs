@@ -91,6 +91,7 @@ pub async fn add_serial_device(
         socket_queue_tx,
         namespace: None,
         main_thread_channel: Some(shared_state.main_channel.clone()),
+        sdo_write_u16: None,
     });
 
     let machine = match new_machine {

@@ -1,6 +1,6 @@
+use crate::schneidemaschine_v0::SchneidemaschineV0;
 use crate::schneidemaschine_v0::api::SchneidemaschineV0Namespace;
 use crate::schneidemaschine_v0::roles;
-use crate::schneidemaschine_v0::SchneidemaschineV0;
 use smol::block_on;
 use std::time::Instant;
 
@@ -11,11 +11,11 @@ use crate::{
 
 use anyhow::Error;
 use ethercat_hal::coe::ConfigurableDevice;
-use ethercat_hal::devices::el1008::{EL1008, EL1008Port, EL1008_IDENTITY_A};
-use ethercat_hal::devices::el2008::{EL2008, EL2008Port, EL2008_IDENTITY_A, EL2008_IDENTITY_B};
+use ethercat_hal::devices::el1008::{EL1008, EL1008_IDENTITY_A, EL1008Port};
+use ethercat_hal::devices::el2008::{EL2008, EL2008_IDENTITY_A, EL2008_IDENTITY_B, EL2008Port};
 use ethercat_hal::devices::el2522::{
-    EL2522, EL2522ChannelConfiguration, EL2522Configuration, EL2522OperatingMode, EL2522Port,
-    EL2522_IDENTITY_A,
+    EL2522, EL2522_IDENTITY_A, EL2522ChannelConfiguration, EL2522Configuration,
+    EL2522OperatingMode, EL2522Port,
 };
 use ethercat_hal::io::digital_input::DigitalInput;
 use ethercat_hal::io::digital_output::DigitalOutput;
@@ -87,7 +87,7 @@ impl MachineNewTrait for SchneidemaschineV0 {
             ];
 
             // ========== Pulse Train Outputs (1x EL2522) ==========
-            let (el2522, subdevice) = get_ethercat_device::<EL2522>(
+            let (el2522, subdevice, pto_subdevice_index) = get_ethercat_device::<EL2522>(
                 hardware,
                 params,
                 roles::PTO,
@@ -101,23 +101,17 @@ impl MachineNewTrait for SchneidemaschineV0 {
             let el2522_config = EL2522Configuration {
                 // Channel 1: Default (not used currently)
                 channel1_configuration: EL2522ChannelConfiguration::default(),
-                // Channel 2: CL57T Stepper Driver - Pulse+Direction
+                // Channel 2: CL57T Stepper Driver - Pulse+Direction, Hardware ramp enabled
                 channel2_configuration: EL2522ChannelConfiguration {
-                    // Pulse + Direction mode for stepper driver
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    // Disable hardware ramp - we use software ramping for dynamic acceleration
-                    ramp_function_active: false,
-                    // Direct frequency input (Hz value directly controls frequency)
+                    ramp_function_active: true,
                     direct_input_mode: true,
-                    // Base frequency 1: Max frequency in Hz
-                    // 230 mm/s * 20 pulses/mm = 4600 Hz, use 5000 Hz as base
                     base_frequency_1: 5000,
-                    // Frequency factor for direct input mode (100 = 1:1)
                     frequency_factor: 100,
-                    // Enable travel distance control for position targeting
                     travel_distance_control: true,
-                    // Disable watchdog for testing
                     watchdog_timer_deactive: true,
+                    ramp_time_constant_rising: 2500,
+                    ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
                 ..Default::default()
@@ -131,7 +125,7 @@ impl MachineNewTrait for SchneidemaschineV0 {
                 .await?;
 
             tracing::info!(
-                "[SchneidemaschineV0] EL2522 configured: Channel 2 = PulseDirection mode, base_freq=5000Hz, software ramp enabled"
+                "[SchneidemaschineV0] EL2522 configured: Channel 2 = PulseDirection mode, base_freq=5000Hz, hardware ramp enabled"
             );
 
             // Create PulseTrainOutput array for 2 axes
@@ -156,10 +150,13 @@ impl MachineNewTrait for SchneidemaschineV0 {
                 axes,
                 axis_speeds: [0; 2],
                 axis_target_speeds: [0; 2],
-                axis_accelerations: [100.0; 2],  // Default: 100 mm/s²
+                axis_accelerations: [100.0; 2], // Default: 100 mm/s²
                 axis_target_positions: [0; 2],
                 axis_position_mode: [false; 2],
-                last_ramp_update: Instant::now(),
+                axis_position_ignore_cycles: [0; 2],
+                sdo_write_u16: params.sdo_write_u16.clone(),
+                pto_subdevice_index,
+                last_debug_log: None,
             };
 
             machine.emit_state();

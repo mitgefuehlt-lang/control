@@ -110,7 +110,7 @@ export function SidebarLayout() {
 
   const items: SidebarItemContent[] = [
     ...machines.map((machine) => ({
-      link: `/_sidebar/machines/${machine.slug}/${machine.machine_identification_unique.serial}/control`,
+      link: `/_sidebar/machines/${machine.slug}/${machine.machine_identification_unique.serial}/${machine.defaultTab ?? "control"}`,
       activeLink: `/_sidebar/machines/${machine.slug}/${machine.machine_identification_unique.serial}`,
       title: machine.name,
       icon: machine.icon,

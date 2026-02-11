@@ -18,9 +18,9 @@ use crate::schneidemaschine_v0::api::SchneidemaschineV0Namespace;
 
 /// Device Roles for SchneidemaschineV0
 pub mod roles {
-    pub const DIGITAL_INPUT: u16 = 1;  // EL1008
+    pub const DIGITAL_INPUT: u16 = 1; // EL1008
     pub const DIGITAL_OUTPUT: u16 = 2; // EL2008
-    pub const PTO: u16 = 3;            // EL2522
+    pub const PTO: u16 = 3; // EL2522
 }
 
 /// Mechanical constants for the linear axis
@@ -48,7 +48,6 @@ pub mod mechanics {
     }
 }
 
-#[derive(Debug)]
 pub struct SchneidemaschineV0 {
     pub api_receiver: Receiver<MachineMessage>,
     pub api_sender: Sender<MachineMessage>,
@@ -66,12 +65,25 @@ pub struct SchneidemaschineV0 {
 
     // Pulse Train Outputs (1x EL2522 = 2 channels)
     pub axes: [PulseTrainOutput; 2],
-    pub axis_speeds: [i32; 2],           // Current speed (Hz) - used by software ramp
-    pub axis_target_speeds: [i32; 2],    // Target speed (Hz) - what we want to reach
-    pub axis_accelerations: [f32; 2],    // Acceleration in mm/s² per axis
-    pub axis_target_positions: [u32; 2], // Target position in pulses for position mode
-    pub axis_position_mode: [bool; 2],   // True if axis is in position mode (auto-stop at target)
-    pub last_ramp_update: Instant,       // For software ramp timing
+    pub axis_speeds: [i32; 2],
+    pub axis_target_speeds: [i32; 2],
+    pub axis_accelerations: [f32; 2],
+    pub axis_target_positions: [i32; 2],
+    pub axis_position_mode: [bool; 2],
+    pub axis_position_ignore_cycles: [u8; 2],
+
+    // Hardware ramp control
+    pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,
+    pub pto_subdevice_index: usize,
+
+    // Debug logging
+    pub last_debug_log: Option<Instant>,
+}
+
+impl std::fmt::Debug for SchneidemaschineV0 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SchneidemaschineV0")
+    }
 }
 
 impl Machine for SchneidemaschineV0 {
@@ -162,137 +174,192 @@ impl SchneidemaschineV0 {
         }
     }
 
-    /// Stop all axes (set speed to 0)
+    /// Stop all axes - hardware immediate stop
     pub fn stop_all_axes(&mut self) {
         for i in 0..self.axis_speeds.len() {
             self.axis_speeds[i] = 0;
-            self.axes[i].set_frequency(0);
+            self.axis_target_speeds[i] = 0;
+            self.axis_position_mode[i] = false;
+
+            let mut output = self.axes[i].get_output();
+            output.disble_ramp = true;
+            output.go_counter = false;
+            output.frequency_value = 0;
+            self.axes[i].set_output(output);
         }
         self.emit_state();
     }
 
+    /// Stop single axis - hardware immediate stop
+    pub fn stop_axis(&mut self, index: usize) {
+        if index < self.axis_speeds.len() {
+            self.axis_speeds[index] = 0;
+            self.axis_target_speeds[index] = 0;
+            self.axis_position_mode[index] = false;
+
+            let mut output = self.axes[index].get_output();
+            output.disble_ramp = true;
+            output.go_counter = false;
+            output.frequency_value = 0;
+            self.axes[index].set_output(output);
+
+            self.emit_state();
+        }
+    }
+
     // ============ Speed/Acceleration Functions ============
 
-    /// Set target axis speed in mm/s (software ramp will handle transition)
+    /// Set target axis speed in mm/s (hardware ramp handles transition)
     /// Positive = forward, Negative = backward
     pub fn set_axis_speed_mm_s(&mut self, index: usize, mm_per_s: f32) {
         if index < self.axis_target_speeds.len() {
             let hz = mechanics::mm_per_s_to_hz(mm_per_s);
             self.axis_target_speeds[index] = hz;
+            // Hardware ramp accelerates/brakes automatically to target
             self.emit_state();
-            tracing::info!(
-                "[SchneidemaschineV0] Axis {} target speed set: {:.1} mm/s = {} Hz (accel: {:.1} mm/s²)",
-                index,
-                mm_per_s,
-                hz,
-                self.axis_accelerations[index]
-            );
         }
     }
 
-    /// Set axis acceleration in mm/s²
+    /// Set axis acceleration in mm/s² - writes ramp time constants via SDO
     pub fn set_axis_acceleration(&mut self, index: usize, accel_mm_s2: f32) {
         if index < self.axis_accelerations.len() {
-            // Clamp acceleration to reasonable range (1-500 mm/s²)
-            let clamped = accel_mm_s2.clamp(1.0, 500.0);
+            let clamped = accel_mm_s2.clamp(4.0, 500.0);
             self.axis_accelerations[index] = clamped;
+
+            // Calculate ramp time constants for hardware
+            let accel_hz_s = clamped * mechanics::PULSES_PER_MM;
+            let base_freq = 5000.0_f32;
+            let rising_ms = ((base_freq / accel_hz_s) * 1000.0) as u16;
+            let falling_ms = rising_ms; // Same as rising to avoid step loss from aggressive braking
+
+            // SDO-Write to EL2522
+            // NOTE: SdoWriteU16Fn returns () - errors are handled inside the callback.
+            if let Some(sdo_write) = &self.sdo_write_u16 {
+                let subdevice_index = self.pto_subdevice_index;
+                // PTO Base Index: Channel 1 = 0x8000, Channel 2 = 0x8010
+                let pto_base = if index == 0 { 0x8000u16 } else { 0x8010u16 };
+
+                tracing::debug!(
+                    "[SchneidemaschineV0] SDO write axis {}: ramp rising={}ms falling={}ms (accel={:.0} mm/s²)",
+                    index,
+                    rising_ms,
+                    falling_ms,
+                    clamped
+                );
+
+                sdo_write(subdevice_index, pto_base, 0x14, rising_ms);
+                sdo_write(subdevice_index, pto_base, 0x15, falling_ms);
+            } else {
+                tracing::warn!(
+                    "[SchneidemaschineV0] SDO write not available - acceleration change will not take effect"
+                );
+            }
             self.emit_state();
-            tracing::info!(
-                "[SchneidemaschineV0] Axis {} acceleration set: {:.1} mm/s²",
-                index,
-                clamped
-            );
         }
     }
 
-    /// Move to a target position in mm
-    /// This starts the motor and auto-stops when position is reached
+    /// Move to a target position in mm using hardware Travel Distance Control
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
         if index < self.axes.len() {
-            let target_pulses = (position_mm * mechanics::PULSES_PER_MM) as u32;
-            let current_pulses = self.axes[index].get_position();
+            let target_pulses = (position_mm.round() * mechanics::PULSES_PER_MM) as i32;
+            let speed_hz = mechanics::mm_per_s_to_hz(speed_mm_s.abs());
 
-            // Determine direction based on current vs target position
-            let speed_hz = if target_pulses > current_pulses {
-                mechanics::mm_per_s_to_hz(speed_mm_s.abs())
+            let current_pulses = self.axes[index].get_position() as i32;
+            let direction = if target_pulses > current_pulses {
+                1
             } else {
-                mechanics::mm_per_s_to_hz(-speed_mm_s.abs())
+                -1
             };
 
-            // Set position mode
             self.axis_target_positions[index] = target_pulses;
             self.axis_position_mode[index] = true;
+            self.axis_position_ignore_cycles[index] = 5;
 
-            // Set target speed (software ramp will handle acceleration)
-            self.axis_target_speeds[index] = speed_hz;
-
-            // Set target counter value in hardware for auto-stop
+            // In Travel Distance Control mode, the EL2522 hardware automatically
+            // determines direction by comparing target_counter_value vs current position.
+            // frequency_value must be POSITIVE (magnitude only) - sign is NOT used for direction.
             let mut output = self.axes[index].get_output();
-            output.target_counter_value = target_pulses;
+            output.go_counter = true;
+            output.disble_ramp = false;
+            output.frequency_value = speed_hz;
+            output.target_counter_value = target_pulses as u32;
             self.axes[index].set_output(output);
+
+            // Keep sign for UI display
+            self.axis_target_speeds[index] = speed_hz * direction;
+            self.axis_speeds[index] = speed_hz * direction;
 
             self.emit_state();
             tracing::info!(
-                "[SchneidemaschineV0] Axis {} moving to {:.1} mm ({} pulses) at {:.1} mm/s",
+                "[SchneidemaschineV0] Axis {} moving to {:.0} mm ({} pulses) at {:.1} mm/s",
                 index,
-                position_mm,
+                position_mm.round(),
                 target_pulses,
                 speed_mm_s
             );
         }
     }
 
-    /// Software ramp: update axis_speeds towards target_speeds based on acceleration
-    /// Called from act() loop at ~30Hz
-    /// Returns true if any speed changed (for state emission)
-    pub fn update_software_ramp(&mut self, dt_secs: f32) -> bool {
+    /// Hardware ramp monitor: watches hardware status, does not set speeds
+    pub fn update_hardware_monitor(&mut self) -> bool {
         let mut changed = false;
         for i in 0..self.axis_speeds.len() {
-            // Check if we're in position mode and reached target
+            let input = self.axes[i].get_input();
+
+            // Position mode: target detection
             if self.axis_position_mode[i] {
-                let current_pos = self.axes[i].get_position();
-                let target_pos = self.axis_target_positions[i];
-                let moving_forward = self.axis_target_speeds[i] > 0;
-
-                // Check if we've reached or passed the target
-                let reached = if moving_forward {
-                    current_pos >= target_pos
-                } else {
-                    current_pos <= target_pos
-                };
-
-                if reached {
-                    // Stop the motor
+                if self.axis_position_ignore_cycles[i] > 0 {
+                    self.axis_position_ignore_cycles[i] -= 1;
+                } else if input.select_end_counter {
+                    self.axis_speeds[i] = 0;
                     self.axis_target_speeds[i] = 0;
                     self.axis_position_mode[i] = false;
-                    tracing::info!(
-                        "[SchneidemaschineV0] Axis {} reached target position {} pulses",
-                        i,
-                        target_pos
-                    );
+
+                    let mut output = self.axes[i].get_output();
+                    output.go_counter = false;
+                    output.frequency_value = 0;
+                    self.axes[i].set_output(output);
+
+                    changed = true;
+                    let actual_pos = self.axes[i].get_position() as i32;
+                    let target_pos = self.axis_target_positions[i];
+                    let deviation = (actual_pos - target_pos).abs();
+                    if deviation > 2 {
+                        tracing::warn!(
+                            "[Axis {}] STEP LOSS DETECTED: target={} actual={} deviation={} pulses ({:.2} mm)",
+                            i,
+                            target_pos,
+                            actual_pos,
+                            deviation,
+                            deviation as f32 / mechanics::PULSES_PER_MM
+                        );
+                    } else {
+                        tracing::info!(
+                            "[Axis {}] Target reached: {} pulses (actual: {}, deviation: {})",
+                            i,
+                            target_pos,
+                            actual_pos,
+                            deviation
+                        );
+                    }
                 }
             }
 
-            let current = self.axis_speeds[i];
-            let target = self.axis_target_speeds[i];
+            // JOG mode: send speed directly to hardware
+            if !self.axis_position_mode[i] {
+                let target = self.axis_target_speeds[i];
+                if self.axis_speeds[i] != target {
+                    let mut output = self.axes[i].get_output();
+                    output.disble_ramp = false;
+                    output.go_counter = false;
+                    output.frequency_value = target;
+                    self.axes[i].set_output(output);
+                    self.axis_speeds[i] = target;
+                    changed = true;
+                }
+            }
 
-            if current != target {
-                // Convert acceleration from mm/s² to Hz/s
-                let accel_hz_per_s = self.axis_accelerations[i] * mechanics::PULSES_PER_MM;
-                let delta_hz = ((accel_hz_per_s * dt_secs) as i32).max(1); // At least 1 Hz step
-
-                // Move towards target
-                let new_speed = if current < target {
-                    // Accelerating
-                    (current + delta_hz).min(target)
-                } else {
-                    // Decelerating
-                    (current - delta_hz).max(target)
-                };
-
-                // Apply new speed to hardware
-                self.axis_speeds[i] = new_speed;
-                self.axes[i].set_frequency(new_speed);
+            if input.ramp_active {
                 changed = true;
             }
         }
@@ -340,7 +407,8 @@ impl SchneidemaschineV0 {
     pub fn emit_debug_pto(&mut self, index: usize) {
         let debug = self.get_debug_pto(index);
         let event = debug.build();
-        self.namespace.emit(SchneidemaschineV0Events::DebugPto(event));
+        self.namespace
+            .emit(SchneidemaschineV0Events::DebugPto(event));
     }
 
     /// Log all debug info to console

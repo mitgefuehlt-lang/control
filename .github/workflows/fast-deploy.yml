@@ -41,12 +41,30 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=10"
+          BRANCH="${GITHUB_REF#refs/heads/}"
           ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "set -euo pipefail; \
              cd \"$DEPLOY_PATH\"; \
-             git pull --ff-only; \
+             git fetch origin; \
+             git checkout \"$BRANCH\"; \
+             git reset --hard \"origin/$BRANCH\"; \
              sudo nixos-rebuild switch --flake .#nixos --impure --show-trace; \
              sleep 5; \
              systemctl is-active sshd; \
              systemctl is-active qitech-control-server; \
              systemctl is-active dnsmasq"
+
+      - name: Restart Electron UI and verify server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=10"
+          ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "pkill -x qitech-control-e || true; \
+             sleep 2; \
+             sudo systemctl restart qitech-control-server; \
+             sleep 5; \
+             systemctl is-active qitech-control-server; \
+             echo 'Electron UI restarted, server verified'"

@@ -1,3 +1,4 @@
+import React from "react";
 import { ControlCard } from "@/control/ControlCard";
 import { Page } from "@/components/Page";
 import { ControlGrid } from "@/control/ControlGrid";
@@ -50,7 +51,11 @@ const useBbmMotorsUiStore = create<MotorsUiState>((set) => ({
     }),
 }));
 
-function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlProps) {
+function AxisControl({
+  axisIndex,
+  axisName,
+  isRotation = false,
+}: AxisControlProps) {
   const {
     state,
     setAxisSpeedMmS,
@@ -64,6 +69,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     getAxisSpeedMmS,
     getAxisSpeedRpm,
     getAxisPositionMm,
+    getAxisSoftLimitMax,
+    getAxisAlarmActive,
     isDisabled,
     isLoading,
     MAX_SPEED_MM_S,
@@ -71,6 +78,10 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     MAX_ACCELERATION_MM_S2,
     MIN_ACCELERATION_MM_S2,
   } = useBbmAutomatikV2();
+
+  const isAlarm = getAxisAlarmActive(axisIndex);
+
+  const softLimitMax = getAxisSoftLimitMax(axisIndex);
 
   const axisInputs = useBbmMotorsUiStore(
     (store) => store.axes[axisIndex] ?? DEFAULT_AXIS_INPUTS,
@@ -163,6 +174,12 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     return (
       <ControlCard title={`${axisName} (Rotation)`}>
         <div className="flex flex-col gap-4">
+          {/* Driver alarm banner */}
+          {isAlarm && (
+            <div className="animate-pulse rounded bg-red-600 py-2 text-center font-bold text-white">
+              TREIBER ALARM
+            </div>
+          )}
           {/* Direction + Speed in row */}
           <div className="grid grid-cols-2 gap-2">
             <Label label="Richtung">
@@ -172,7 +189,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                   icon="lu:RotateCcw"
                   onClick={() => setDirection("ccw")}
                   disabled={isDisabled || isMotorCommanded}
-                  className={`flex-1 h-10 ${direction === "ccw" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                  className={`h-10 flex-1 ${direction === "ccw" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
                 >
                   CCW
                 </TouchButton>
@@ -181,7 +198,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
                   icon="lu:RotateCw"
                   onClick={() => setDirection("cw")}
                   disabled={isDisabled || isMotorCommanded}
-                  className={`flex-1 h-10 ${direction === "cw" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                  className={`h-10 flex-1 ${direction === "cw" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
                 >
                   CW
                 </TouchButton>
@@ -212,7 +229,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               onClick={handleStartRpm}
               disabled={isDisabled || isMotorCommanded}
               isLoading={isLoading}
-              className="flex-1 h-12 bg-green-600 hover:bg-green-700"
+              className="h-12 flex-1 bg-green-600 hover:bg-green-700"
             >
               START
             </TouchButton>
@@ -223,7 +240,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               onClick={handleStopRotation}
               disabled={isDisabled || !isMotorCommanded}
               isLoading={isLoading}
-              className={`flex-1 h-12 ${!isMotorCommanded && !isDisabled ? "bg-gray-400 hover:bg-gray-400 border-gray-400" : ""}`}
+              className={`h-12 flex-1 ${!isMotorCommanded && !isDisabled ? "border-gray-400 bg-gray-400 hover:bg-gray-400" : ""}`}
             >
               STOP
             </TouchButton>
@@ -231,24 +248,26 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
 
           {/* Error display */}
           {error && (
-            <div className="text-center text-red-600 font-semibold">
+            <div className="text-center font-semibold text-red-600">
               {error}
             </div>
           )}
 
           {/* Current Status - larger */}
-          <div className="pt-3 border-t">
+          <div className="border-t pt-3">
             <span className="text-muted-foreground text-sm">Drehzahl: </span>
-            <span className="font-mono text-lg font-semibold">{roundToDecimals(Math.abs(currentSpeedRpm), 1)} RPM</span>
+            <span className="font-mono text-lg font-semibold">
+              {roundToDecimals(Math.abs(currentSpeedRpm), 1)} RPM
+            </span>
             {currentSpeedRpm !== 0 && (
-              <span className="ml-2 text-muted-foreground">
+              <span className="text-muted-foreground ml-2">
                 ({currentSpeedRpm > 0 ? "CW" : "CCW"})
               </span>
             )}
           </div>
 
           {isMotorCommanded && (
-            <div className="text-center text-green-600 font-semibold animate-pulse">
+            <div className="animate-pulse text-center font-semibold text-green-600">
               Motor läuft
             </div>
           )}
@@ -261,6 +280,12 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   return (
     <ControlCard title={`${axisName} (Linear)`}>
       <div className="flex flex-col gap-4">
+        {/* Driver alarm banner */}
+        {isAlarm && (
+          <div className="animate-pulse rounded bg-red-600 py-2 text-center font-bold text-white">
+            TREIBER ALARM
+          </div>
+        )}
         {/* Inputs in 2x2 grid for better readability */}
         <div className="grid grid-cols-2 gap-2">
           <Label label="Geschw.">
@@ -303,12 +328,10 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               defaultValue={DEFAULT_AXIS_INPUTS.position}
               resetPlacement="header"
               min={0}
-              max={10000}
+              max={softLimitMax ?? 500}
               step={10}
               renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
-              onChange={(pos) =>
-                setAxisValue(axisIndex, "position", pos)
-              }
+              onChange={(pos) => setAxisValue(axisIndex, "position", pos)}
             />
           </Label>
 
@@ -319,8 +342,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
               compact
               defaultValue={DEFAULT_AXIS_INPUTS.step}
               resetPlacement="header"
-              min={1}
-              max={1000}
+              min={0}
+              max={softLimitMax ?? 200}
               step={1}
               renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
               onChange={(step) => setAxisValue(axisIndex, "step", step)}
@@ -336,7 +359,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             onClick={handleStartLinear}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
-            className="flex-1 h-12 bg-green-600 hover:bg-green-700"
+            className="h-12 flex-1 bg-green-600 hover:bg-green-700"
           >
             START
           </TouchButton>
@@ -347,7 +370,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             onClick={handleStopLinear}
             disabled={isDisabled || !isMotorCommanded}
             isLoading={isLoading}
-            className={`flex-1 h-12 ${!isMotorCommanded && !isDisabled ? "bg-gray-400 hover:bg-gray-400 border-gray-400 text-gray-600" : ""}`}
+            className={`h-12 flex-1 ${!isMotorCommanded && !isDisabled ? "border-gray-400 bg-gray-400 text-gray-600 hover:bg-gray-400" : ""}`}
           >
             STOP
           </TouchButton>
@@ -360,9 +383,9 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             onClick={handleJogMinus}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
-            className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
+            className="h-12 flex-1 bg-blue-600 hover:bg-blue-700"
           >
-            JOG-
+            - JOG
           </TouchButton>
 
           <TouchButton
@@ -371,7 +394,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             onClick={handleMoveToPosition}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
-            className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
+            className="h-12 flex-1 bg-blue-600 hover:bg-blue-700"
           >
             FAHRE
           </TouchButton>
@@ -381,9 +404,9 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             onClick={handleJogPlus}
             disabled={isDisabled || isMotorCommanded}
             isLoading={isLoading}
-            className="flex-1 h-12 bg-blue-600 hover:bg-blue-700"
+            className="h-12 flex-1 bg-blue-600 hover:bg-blue-700"
           >
-            JOG+
+            + JOG
           </TouchButton>
 
           <TouchButton
@@ -392,7 +415,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
             onClick={handleHoming}
             disabled={isDisabled || (isMotorCommanded && !isHoming)}
             isLoading={isLoading}
-            className={`flex-1 h-12 ${isHoming ? "animate-pulse" : "bg-amber-500 hover:bg-amber-600 text-black"}`}
+            className={`h-12 flex-1 ${isHoming ? "animate-pulse" : "bg-amber-500 text-black hover:bg-amber-600"}`}
           >
             {isHoming ? "STOP" : "HOME"}
           </TouchButton>
@@ -400,32 +423,34 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
 
         {/* Error display */}
         {error && (
-          <div className="text-center text-red-600 font-semibold">
-            {error}
-          </div>
+          <div className="text-center font-semibold text-red-600">{error}</div>
         )}
 
         {/* Homing status */}
         {isHoming && (
-          <div className="text-center text-amber-600 font-semibold animate-pulse">
+          <div className="animate-pulse text-center font-semibold text-amber-600">
             Referenzfahrt läuft...
           </div>
         )}
 
         {/* Current Status - larger and more prominent */}
-        <div className="flex justify-between pt-3 border-t">
+        <div className="flex justify-between border-t pt-3">
           <div>
             <span className="text-muted-foreground text-sm">Geschw: </span>
-            <span className="font-mono text-lg font-semibold">{roundToDecimals(currentSpeed, 1)} mm/s</span>
+            <span className="font-mono text-lg font-semibold">
+              {roundToDecimals(currentSpeed, 1)} mm/s
+            </span>
           </div>
           <div>
             <span className="text-muted-foreground text-sm">Pos: </span>
-            <span className="font-mono text-lg font-semibold">{roundToDecimals(currentPosition, 1)} mm</span>
+            <span className="font-mono text-lg font-semibold">
+              {roundToDecimals(currentPosition, 1)} mm
+            </span>
           </div>
         </div>
 
         {isMotorCommanded && (
-          <div className="text-center text-green-600 font-semibold animate-pulse">
+          <div className="animate-pulse text-center font-semibold text-green-600">
             Motor läuft
           </div>
         )}
@@ -437,6 +462,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
 export function BbmAutomatikV2MotorsPage() {
   const {
     setRuettelmotor,
+    resetAlarms,
+    isAnyAlarmActive,
     state,
     isDisabled,
     isLoading,
@@ -444,21 +471,49 @@ export function BbmAutomatikV2MotorsPage() {
   } = useBbmAutomatikV2();
 
   const ruettelmotorOn = state?.output_states[OUTPUT.RUETTELMOTOR] ?? false;
+  const hasAlarm = isAnyAlarmActive();
 
   return (
     <Page>
+      {/* Global alarm reset banner */}
+      {hasAlarm && (
+        <div className="mb-4 flex items-center justify-between rounded-lg bg-red-600 px-4 py-3 text-white">
+          <span className="animate-pulse text-lg font-bold">
+            TREIBER ALARM AKTIV
+          </span>
+          <TouchButton
+            variant="outline"
+            icon="lu:RotateCcw"
+            onClick={() => resetAlarms()}
+            className="border-white bg-white font-bold text-red-600 hover:bg-red-100"
+          >
+            ALARM RESET
+          </TouchButton>
+        </div>
+      )}
+
       <ControlGrid columns={2}>
         {/* MT (Magazin Transporter) */}
         <AxisControl axisIndex={AXIS.MT} axisName={AXIS_NAMES[AXIS.MT]} />
 
         {/* Schieber */}
-        <AxisControl axisIndex={AXIS.SCHIEBER} axisName={AXIS_NAMES[AXIS.SCHIEBER]} />
+        <AxisControl
+          axisIndex={AXIS.SCHIEBER}
+          axisName={AXIS_NAMES[AXIS.SCHIEBER]}
+        />
 
         {/* Drücker */}
-        <AxisControl axisIndex={AXIS.DRUECKER} axisName={AXIS_NAMES[AXIS.DRUECKER]} />
+        <AxisControl
+          axisIndex={AXIS.DRUECKER}
+          axisName={AXIS_NAMES[AXIS.DRUECKER]}
+        />
 
         {/* Bürste (Rotation) */}
-        <AxisControl axisIndex={AXIS.BUERSTE} axisName={AXIS_NAMES[AXIS.BUERSTE]} isRotation />
+        <AxisControl
+          axisIndex={AXIS.BUERSTE}
+          axisName={AXIS_NAMES[AXIS.BUERSTE]}
+          isRotation
+        />
 
         {/* Rüttelmotor */}
         <ControlCard title="Rüttelmotor">
@@ -475,7 +530,7 @@ export function BbmAutomatikV2MotorsPage() {
             </TouchButton>
 
             {ruettelmotorOn && (
-              <div className="text-center text-green-600 font-semibold animate-pulse">
+              <div className="animate-pulse text-center font-semibold text-green-600">
                 Rüttelmotor aktiv
               </div>
             )}

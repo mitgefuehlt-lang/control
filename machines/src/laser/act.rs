@@ -14,10 +14,10 @@ use std::time::{Duration, Instant};
 ///
 /// # Description
 /// This method is called to perform periodic actions for the `LaserMachine`. Specifically:
-/// - It checks if the time elapsed since the last measurement emission exceeds 20 milliseconds.
-/// - If the condition is met, it asynchronously emits live values at 60 FPS.
+/// - It checks if the time elapsed since the last measurement emission exceeds ~33 milliseconds.
+/// - If the condition is met, it emits live values at ~30 FPS.
 ///
-/// The method ensures that the diameter value is updated approximately 60 times per second.
+/// The method ensures that the diameter value is updated approximately 30 times per second.
 ///
 impl MachineAct for LaserMachine {
     fn act(&mut self, now: Instant) {
@@ -54,7 +54,9 @@ impl MachineAct for LaserMachine {
                     namespace.sockets.clear();
                     namespace.events.clear();
                 }
-                None => todo!(),
+                None => {
+                    // Already unsubscribed, nothing to do
+                }
             },
             MachineMessage::HttpApiJsonRequest(value) => {
                 use crate::MachineApi;
@@ -67,17 +69,17 @@ impl MachineAct for LaserMachine {
                 /*Doesnt connect to any Machine so do nothing*/
                 {}
             MachineMessage::RequestValues(sender) => {
-                sender
-                    .send_blocking(MachineValues {
-                        state: serde_json::to_value(self.get_state())
-                            .expect("Failed to serialize state"),
-                        live_values: serde_json::to_value(self.get_live_values())
-                            .expect("Failed to serialize live values"),
-                    })
-                    .expect("Failed to send values");
+                let state = serde_json::to_value(self.get_state()).unwrap_or_else(|e| {
+                    tracing::error!("[Laser] Failed to serialize state: {}", e);
+                    serde_json::Value::Null
+                });
+                let live_values =
+                    serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
+                        tracing::error!("[Laser] Failed to serialize live values: {}", e);
+                        serde_json::Value::Null
+                    });
+                let _ = sender.send_blocking(MachineValues { state, live_values });
                 sender.close();
-
-                ()
             }
         }
     }

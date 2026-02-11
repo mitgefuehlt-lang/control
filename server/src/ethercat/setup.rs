@@ -130,12 +130,24 @@ pub async fn set_ethercat_devices<const MAX_SUBDEVICES: usize, const MAX_PDI: us
             None => continue, // Skip this group if empty
         };
 
+        let rt_sender = shared_state.rt_machine_creation_channel.clone();
+        let sdo_write_u16: machines::SdoWriteU16Fn =
+            Arc::new(move |subdevice_index, index, subindex, value| {
+                let _ = rt_sender.try_send(crate::app_state::HotThreadMessage::SdoWriteU16 {
+                    subdevice_index,
+                    index,
+                    subindex,
+                    value,
+                });
+            });
+
         let new_machine = machine_registry.new_machine(&MachineNewParams {
             device_group,
             hardware: &machine_new_hardware,
             socket_queue_tx: socket_queue_tx.clone(),
             namespace: None,
             main_thread_channel: Some(shared_state.main_channel.clone()),
+            sdo_write_u16: Some(sdo_write_u16),
         });
 
         match new_machine {

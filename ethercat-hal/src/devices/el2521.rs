@@ -48,6 +48,7 @@ impl NewEthercatDevice for EL2521 {
 impl PulseTrainOutputDevice<EL2521Port> for EL2521 {
     fn set_output(&mut self, _port: EL2521Port, value: PulseTrainOutputOutput) {
         self.rxpdo.pto_control.as_mut().unwrap().disble_ramp = value.disble_ramp;
+        self.rxpdo.pto_control.as_mut().unwrap().go_counter = value.go_counter;
         self.rxpdo.pto_control.as_mut().unwrap().frequency_value = value.frequency_value;
         self.rxpdo.pto_target.as_mut().unwrap().target_counter_value = value.target_counter_value;
         self.rxpdo.enc_control.as_mut().unwrap().set_counter = value.set_counter;
@@ -57,6 +58,7 @@ impl PulseTrainOutputDevice<EL2521Port> for EL2521 {
     fn get_output(&self, _port: EL2521Port) -> PulseTrainOutputOutput {
         PulseTrainOutputOutput {
             disble_ramp: self.rxpdo.pto_control.as_ref().unwrap().disble_ramp,
+            go_counter: self.rxpdo.pto_control.as_ref().unwrap().go_counter,
             frequency_value: self.rxpdo.pto_control.as_ref().unwrap().frequency_value,
             target_counter_value: self.rxpdo.pto_target.as_ref().unwrap().target_counter_value,
             set_counter: self.rxpdo.enc_control.as_ref().unwrap().set_counter,

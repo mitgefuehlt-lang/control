@@ -1,3 +1,4 @@
+import React from "react";
 import { ControlCard } from "@/control/ControlCard";
 import { Page } from "@/components/Page";
 import { ControlGrid } from "@/control/ControlGrid";
@@ -22,7 +23,7 @@ export function SchneidemaschineV0ControlPage() {
               const inputState = liveValues?.input_states[index] ?? false;
               return (
                 <div key={index} className="flex flex-col items-center gap-1">
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-muted-foreground text-xs">
                     DI{index}
                   </span>
                   <Badge
@@ -52,7 +53,7 @@ export function SchneidemaschineV0ControlPage() {
             >
               {output0 ? "AN" : "AUS"}
             </Button>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-muted-foreground text-sm">
               Digital Output 0
             </span>
           </div>
