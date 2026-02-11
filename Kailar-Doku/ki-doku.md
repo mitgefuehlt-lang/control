@@ -2182,10 +2182,96 @@ Vier parallel laufende Analyse-Agents untersuchten die gesamte Codebase. Ergebni
 Basierend auf den Analyse-Ergebnissen, priorisiert:
 
 1. [ ] PR #1 mergen (alle Checks gruen)
-2. [ ] Zyklusautomatik implementieren (19-Zyklen Sequenz - Kern-Feature)
-3. [ ] Tuer-Interlock enforcen (Motor-Stop wenn Tuer offen)
+2. [x] Zyklusautomatik implementieren (19-Zyklen Sequenz - Kern-Feature) → Session 2026-02-11 #2
+3. [x] Tuer-Interlock enforcen (Motor-Stop wenn Tuer offen) → Session 2026-02-11 #2
 4. [ ] EtherCAT Link-Loss Detection
 5. [ ] BBM Graphen-Seite erstellen
 6. [ ] Produktionszaehler (Zyklen, Sets)
 7. [ ] Alarm-Historie persistent machen
 8. [ ] Machine Overview Dashboard
+
+---
+
+## Session 2026-02-11 #2: Door Interlock + 19-Cycle Automation
+
+**Branch:** `feature/door-interlock-and-cycle-automation`
+**Commit:** `2ccfa7a5` - Add door interlock and 19-cycle auto-sequence state machine
+**Deployed:** Ja, live auf Mini-PC (nixos-rebuild switch)
+
+### Was wurde implementiert
+
+#### 1. Door Interlock Enforcement
+
+Tuersensor-Ueberwachung waehrend Betrieb. Wenn Tuer offen geht:
+- Sofort alle Achsen stoppen (Emergency Stop)
+- Auto-Sequenz abbrechen falls aktiv
+- Ruettelmotor aus, Ampel rot
+- `door_interlock_active = true` → rotes Banner auf allen UI-Seiten
+- Auto-Reset wenn Tuer wieder geschlossen wird
+
+**Dateien:**
+- `mod.rs`: `check_door_interlock()` Methode, `door_interlock_active` Feld
+- `act.rs`: Interlock-Check nach Driver-Alarm-Check (zweithöchste Prioritaet)
+- `api.rs`: `door_interlock_active` in StateEvent
+- Frontend: Rotes Banner "TUER OFFEN - NOTFALL-STOPP AKTIV" auf Auto/Test/Motors-Seiten
+
+#### 2. 19-Cycle Auto-Sequence State Machine
+
+Komplette Befuell-Sequenz aus Arduino v3.2 als Rust State Machine:
+
+**Positionen (mm):**
+- MT: Start=5, Run=34.5, Advance=-10/Zyklus
+- Schieber: Start=7, Target=51, Wobble=±1.5
+- Druecker: Start=60, Target=105
+
+**Geschwindigkeitspresets:**
+| Preset | MT | Schieber | Druecker | Buerste |
+|--------|-----|----------|----------|---------|
+| Slow   | 30  | 40       | 40       | 30 RPM  |
+| Medium | 60  | 80       | 80       | 50 RPM  |
+| Fast   | 100 | 150      | 150      | 70 RPM  |
+
+**Zyklusablauf (AutoCycleStep enum):**
+1. WobbleOut → Schieber +1.5mm (Filter loesen)
+2. WobbleBack → Schieber -1.5mm
+3. SchieberToTarget → 51mm (Filter fallen ins Magazin)
+4. DrueckerToTarget → 105mm (haengende Filter nachruecken)
+5. ParallelReturn → Druecker + Schieber zurueck + MT -10mm (parallel)
+6. WaitParallelComplete → Warten bis alle 3 fertig
+
+**Hierarchie:** Set → Block (3 pro Set) → Zyklus (19 pro Block)
+
+**State Machine Steuerung:**
+- `update_auto_sequence()` in act()-Loop, prueft `axis_position_mode` fuer Move-Completion
+- `advance_auto_sequence()` zaehlt Zyklen/Bloecke/Sets hoch
+- `start_auto_sequence(preset, sets)` mit Safety-Checks (Tuer, Alarm)
+- `stop_auto_sequence()` stoppt alles sofort
+
+**Dateien Backend (9 Aenderungen, +513 Zeilen):**
+- `mod.rs`: speed_presets, auto_positions, AutoCycleStep, AutoSequenceState, 6 neue Methoden
+- `api.rs`: StateEvent +6 Felder, Mutation +2 Varianten (StartAutoSequence, StopAutoSequence)
+- `act.rs`: door_interlock + auto_sequence Updates in act()-Loop
+- `new.rs`: Feld-Initialisierung
+
+**Dateien Frontend (5 Aenderungen):**
+- `bbmAutomatikV2Namespace.ts`: Schema +6 Felder
+- `useBbmAutomatikV2.ts`: startAutoSequence/stopAutoSequence Mutations, isDoorInterlockActive/isAutoRunning Helpers
+- `BbmAutomatikV2AutoPage.tsx`: Echte Mutations statt Console.log, Live-Fortschritt (Set/Block/Zyklus), Interlock-Banner
+- `BbmAutomatikV2TestPage.tsx`: Buttons verdrahtet (1x/5x/Magazin → StartAutoSequence, Reset → Stop+Home)
+- `BbmAutomatikV2MotorsPage.tsx`: Interlock-Banner hinzugefuegt
+
+### Verifikation
+
+- [x] `cargo check` auf Mini-PC (NixOS, nix develop) → fehlerfrei
+- [x] `npx tsc --noEmit` → fehlerfrei
+- [x] `npx prettier --check` → formatiert
+- [x] `nixos-rebuild switch` → deployed, Server active
+- [x] EtherCAT: OP state, alle Subdevices initialisiert
+- [ ] Hardware-Test ausstehend (Achsen fahren, Tuer-Interlock, Sequenz-Ablauf)
+
+### Offene Punkte
+
+1. **Buerste:** Wird in Auto-Sequenz noch nicht gestartet (nur Ruettler). Klaeren ob Buerste mitlaufen soll
+2. **Test-Seite:** "1x befuellen" und "1 Magazin" machen aktuell das gleiche (1 Set). Fuer Einzel-Zyklus-Test braeuchte es eigene Mutation
+3. **Pause/Resume:** Aktuell nur Start/Stop, kein Pausieren moeglich
+4. **Hardware-Test:** Sequenz auf echter Maschine validieren (Positionen, Timing, Wobble-Effekt)
