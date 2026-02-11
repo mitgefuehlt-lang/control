@@ -10,10 +10,7 @@ import { useState } from "react";
 type SpeedPreset = "slow" | "medium" | "fast";
 
 export function BbmAutomatikV2TestPage() {
-  const {
-    isDisabled,
-    isLoading,
-  } = useBbmAutomatikV2();
+  const { isDisabled, isLoading } = useBbmAutomatikV2();
 
   const [speedPreset, setSpeedPreset] = useState<SpeedPreset>("slow");
 
@@ -46,21 +43,21 @@ export function BbmAutomatikV2TestPage() {
                     key={preset}
                     variant={speedPreset === preset ? "default" : "outline"}
                     onClick={() => setSpeedPreset(preset)}
-                    className={`flex-1 h-12 ${
+                    className={`h-12 flex-1 ${
                       speedPreset === preset
                         ? preset === "slow"
                           ? "bg-green-600 hover:bg-green-700"
                           : preset === "medium"
-                          ? "bg-yellow-600 hover:bg-yellow-700"
-                          : "bg-red-600 hover:bg-red-700"
+                            ? "bg-yellow-600 hover:bg-yellow-700"
+                            : "bg-red-600 hover:bg-red-700"
                         : ""
                     }`}
                   >
                     {preset === "slow"
                       ? "Langsam"
                       : preset === "medium"
-                      ? "Mittel"
-                      : "Schnell"}
+                        ? "Mittel"
+                        : "Schnell"}
                   </TouchButton>
                 ))}
               </div>
@@ -72,7 +69,7 @@ export function BbmAutomatikV2TestPage() {
               onClick={handleSequence1x}
               disabled={isDisabled}
               isLoading={isLoading}
-              className="h-14 text-lg bg-blue-600 hover:bg-blue-700"
+              className="h-14 bg-blue-600 text-lg hover:bg-blue-700"
             >
               1x befüllen
             </TouchButton>
@@ -83,7 +80,7 @@ export function BbmAutomatikV2TestPage() {
               onClick={handleSequence5x}
               disabled={isDisabled}
               isLoading={isLoading}
-              className="h-14 text-lg bg-blue-600 hover:bg-blue-700"
+              className="h-14 bg-blue-600 text-lg hover:bg-blue-700"
             >
               5x befüllen
             </TouchButton>
@@ -94,7 +91,7 @@ export function BbmAutomatikV2TestPage() {
               onClick={handleSequenceMagazin}
               disabled={isDisabled}
               isLoading={isLoading}
-              className="h-14 text-lg bg-blue-600 hover:bg-blue-700"
+              className="h-14 bg-blue-600 text-lg hover:bg-blue-700"
             >
               1 Magazin (19x)
             </TouchButton>
@@ -114,11 +111,21 @@ export function BbmAutomatikV2TestPage() {
 
         <ControlCard title="Info">
           <div className="text-muted-foreground space-y-2">
-            <p><strong>1x befüllen:</strong> Eine Filterhülse vereinzeln und in Block einfügen</p>
-            <p><strong>5x befüllen:</strong> 5 Filterhülsen nacheinander befüllen</p>
-            <p><strong>1 Magazin (19x):</strong> Komplettes Magazin mit 19 Zyklen befüllen</p>
-            <p><strong>Reset:</strong> Alle Achsen in Ausgangsposition fahren</p>
-            <div className="pt-4 border-t mt-4">
+            <p>
+              <strong>1x befüllen:</strong> Eine Filterhülse vereinzeln und in
+              Block einfügen
+            </p>
+            <p>
+              <strong>5x befüllen:</strong> 5 Filterhülsen nacheinander befüllen
+            </p>
+            <p>
+              <strong>1 Magazin (19x):</strong> Komplettes Magazin mit 19 Zyklen
+              befüllen
+            </p>
+            <p>
+              <strong>Reset:</strong> Alle Achsen in Ausgangsposition fahren
+            </p>
+            <div className="mt-4 border-t pt-4">
               <p className="text-xs text-yellow-600">
                 Hinweis: Test-Sequenzen sind noch nicht implementiert.
               </p>

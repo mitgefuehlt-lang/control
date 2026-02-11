@@ -508,7 +508,7 @@ export function EditValue({
               <span
                 className={`font-mono ${valueTextClass} font-bold whitespace-nowrap`}
               >
-              {renderValueToReactNode(value, unit, renderValue)}
+                {renderValueToReactNode(value, unit, renderValue)}
               </span>
               <span>{renderUnitSymbol(unit)}</span>
             </div>
@@ -516,7 +516,7 @@ export function EditValue({
               <div className="flex items-center">
                 <div
                   aria-hidden
-                  className={`${separatorMarginClass} h-8 w-px bg-foreground/40`}
+                  className={`${separatorMarginClass} bg-foreground/40 h-8 w-px`}
                 />
                 <Icon name="lu:Pencil" className={iconSizeClass} />
               </div>
@@ -524,7 +524,7 @@ export function EditValue({
               <>
                 <div
                   aria-hidden
-                  className={`${separatorMarginClass} h-8 w-px bg-foreground/40`}
+                  className={`${separatorMarginClass} bg-foreground/40 h-8 w-px`}
                 />
                 <Icon name="lu:Pencil" className={iconSizeClass} />
               </>

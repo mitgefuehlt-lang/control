@@ -96,15 +96,18 @@ function useSchneidemaschine(
       speed_mm_s: z.number(),
     }),
   });
-  const { request: requestSetAxisSpeedMmS } =
-    useMachineMutation(setAxisSpeedMmSSchema);
+  const { request: requestSetAxisSpeedMmS } = useMachineMutation(
+    setAxisSpeedMmSSchema,
+  );
 
   const setAxisSpeedMmS = (index: number, speed_mm_s: number) => {
     updateStateOptimistically(
       (current) => {
         if (current.data.axis_speeds && index >= 0 && index < 2) {
           // Convert mm/s to Hz for optimistic state
-          current.data.axis_speeds[index] = Math.round(speed_mm_s * PULSES_PER_MM);
+          current.data.axis_speeds[index] = Math.round(
+            speed_mm_s * PULSES_PER_MM,
+          );
         }
       },
       () =>
@@ -154,11 +157,17 @@ function useSchneidemaschine(
   const { request: requestMoveToPosition } =
     useMachineMutation(moveToPositionSchema);
 
-  const moveToPosition = (index: number, position_mm: number, speed_mm_s: number) => {
+  const moveToPosition = (
+    index: number,
+    position_mm: number,
+    speed_mm_s: number,
+  ) => {
     updateStateOptimistically(
       (current) => {
         if (current.data.axis_target_positions && index >= 0 && index < 2) {
-          current.data.axis_target_positions[index] = Math.round(position_mm * PULSES_PER_MM);
+          current.data.axis_target_positions[index] = Math.round(
+            position_mm * PULSES_PER_MM,
+          );
           current.data.axis_position_mode[index] = true;
         }
       },
@@ -181,8 +190,9 @@ function useSchneidemaschine(
       accel_mm_s2: z.number(),
     }),
   });
-  const { request: requestSetAxisAcceleration } =
-    useMachineMutation(setAxisAccelerationSchema);
+  const { request: requestSetAxisAcceleration } = useMachineMutation(
+    setAxisAccelerationSchema,
+  );
 
   const setAxisAcceleration = (index: number, accel_mm_s2: number) => {
     updateStateOptimistically(

@@ -130,7 +130,9 @@ export function schneidemaschineV0MessageHandler(
         console.log("SchneidemaschineV0 DebugPtoEvent (ignored)", event);
       } else {
         // Log unknown events but don't throw error
-        console.warn(`SchneidemaschineV0: Unknown event "${eventName}" ignored`);
+        console.warn(
+          `SchneidemaschineV0: Unknown event "${eventName}" ignored`,
+        );
       }
     } catch (error) {
       console.error(`Unexpected error processing ${eventName} event:`, error);

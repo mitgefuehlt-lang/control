@@ -13,13 +13,8 @@ interface LogEntry {
 }
 
 export function BbmAutomatikV2StatusPage() {
-  const {
-    state,
-    liveValues,
-    getAxisPositionMm,
-    getAxisSpeedMmS,
-    INPUT,
-  } = useBbmAutomatikV2();
+  const { state, liveValues, getAxisPositionMm, getAxisSpeedMmS, INPUT } =
+    useBbmAutomatikV2();
 
   // Log entries state
   const [logEntries, setLogEntries] = useState<LogEntry[]>([
@@ -98,18 +93,18 @@ export function BbmAutomatikV2StatusPage() {
       <ControlGrid columns={2}>
         {/* Meldungs-Log */}
         <ControlCard title="Meldungen" className="col-span-2">
-          <div className="h-64 overflow-y-auto bg-gray-50 rounded p-2 font-mono text-sm">
+          <div className="h-64 overflow-y-auto rounded bg-gray-50 p-2 font-mono text-sm">
             {logEntries.length === 0 ? (
-              <div className="text-gray-400 text-center py-4">
+              <div className="py-4 text-center text-gray-400">
                 Keine Meldungen
               </div>
             ) : (
               logEntries.map((entry, index) => (
                 <div
                   key={index}
-                  className={`flex gap-2 py-1 border-b border-gray-100 last:border-0 ${getLogEntryColor(entry.type)}`}
+                  className={`flex gap-2 border-b border-gray-100 py-1 last:border-0 ${getLogEntryColor(entry.type)}`}
                 >
-                  <span className="text-gray-400 shrink-0">
+                  <span className="shrink-0 text-gray-400">
                     {formatTimestamp(entry.timestamp)}
                   </span>
                   <span>{entry.message}</span>
@@ -127,12 +122,14 @@ export function BbmAutomatikV2StatusPage() {
               return (
                 <div
                   key={index}
-                  className={`flex items-center gap-2 px-3 py-2 rounded text-sm ${
-                    isActive ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"
+                  className={`flex items-center gap-2 rounded px-3 py-2 text-sm ${
+                    isActive
+                      ? "bg-green-100 text-green-800"
+                      : "bg-gray-100 text-gray-600"
                   }`}
                 >
                   <div
-                    className={`w-2 h-2 rounded-full ${
+                    className={`h-2 w-2 rounded-full ${
                       isActive ? "bg-green-500" : "bg-gray-400"
                     }`}
                   />
@@ -151,13 +148,17 @@ export function BbmAutomatikV2StatusPage() {
               const speed = getAxisSpeedMmS(index) ?? 0;
               const isMoving = speed !== 0;
               return (
-                <div key={index} className="p-3 bg-muted rounded">
-                  <div className="text-sm text-muted-foreground">{name}</div>
+                <div key={index} className="bg-muted rounded p-3">
+                  <div className="text-muted-foreground text-sm">{name}</div>
                   <div className="font-mono text-xl">
                     {roundToDecimals(position, 1)} mm
                   </div>
-                  <div className={`text-xs ${isMoving ? "text-green-600" : "text-muted-foreground"}`}>
-                    {isMoving ? `${roundToDecimals(speed, 1)} mm/s` : "Gestoppt"}
+                  <div
+                    className={`text-xs ${isMoving ? "text-green-600" : "text-muted-foreground"}`}
+                  >
+                    {isMoving
+                      ? `${roundToDecimals(speed, 1)} mm/s`
+                      : "Gestoppt"}
                   </div>
                 </div>
               );
@@ -182,12 +183,14 @@ export function BbmAutomatikV2StatusPage() {
               return (
                 <div
                   key={index}
-                  className={`flex items-center gap-2 px-3 py-2 rounded text-sm ${
-                    isActive ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600"
+                  className={`flex items-center gap-2 rounded px-3 py-2 text-sm ${
+                    isActive
+                      ? "bg-blue-100 text-blue-800"
+                      : "bg-gray-100 text-gray-600"
                   }`}
                 >
                   <div
-                    className={`w-2 h-2 rounded-full ${
+                    className={`h-2 w-2 rounded-full ${
                       isActive ? "bg-blue-500" : "bg-gray-400"
                     }`}
                   />

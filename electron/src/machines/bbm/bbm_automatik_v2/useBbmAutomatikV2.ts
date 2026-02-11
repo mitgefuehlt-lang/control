@@ -16,7 +16,7 @@ import { produce } from "immer";
 const PULSES_PER_MM = 20;
 const PULSES_PER_REV = 200;
 const MAX_SPEED_MM_S = 250;
-const MAX_SPEED_RPM = 100;  // Max RPM for rotation axes
+const MAX_SPEED_RPM = 100; // Max RPM for rotation axes
 const DEFAULT_ACCELERATION_MM_S2 = 100;
 const MAX_ACCELERATION_MM_S2 = 500;
 const MIN_ACCELERATION_MM_S2 = 1;
@@ -30,7 +30,12 @@ export const AXIS = {
 } as const;
 
 // Axis names for display
-export const AXIS_NAMES = ["Transporter", "Schieber", "Drücker", "Bürste"] as const;
+export const AXIS_NAMES = [
+  "Transporter",
+  "Schieber",
+  "Drücker",
+  "Bürste",
+] as const;
 
 // Digital input indices
 export const INPUT = {
@@ -127,14 +132,17 @@ function useBbmAutomatik(
       speed_mm_s: z.number(),
     }),
   });
-  const { request: requestSetAxisSpeedMmS } =
-    useMachineMutation(setAxisSpeedMmSSchema);
+  const { request: requestSetAxisSpeedMmS } = useMachineMutation(
+    setAxisSpeedMmSSchema,
+  );
 
   const setAxisSpeedMmS = (index: number, speed_mm_s: number) => {
     updateStateOptimistically(
       (current) => {
         if (current.data.axis_speeds && index >= 0 && index < 4) {
-          current.data.axis_speeds[index] = Math.round(speed_mm_s * PULSES_PER_MM);
+          current.data.axis_speeds[index] = Math.round(
+            speed_mm_s * PULSES_PER_MM,
+          );
         }
       },
       () =>
@@ -156,15 +164,18 @@ function useBbmAutomatik(
       rpm: z.number(),
     }),
   });
-  const { request: requestSetAxisSpeedRpm } =
-    useMachineMutation(setAxisSpeedRpmSchema);
+  const { request: requestSetAxisSpeedRpm } = useMachineMutation(
+    setAxisSpeedRpmSchema,
+  );
 
   const setAxisSpeedRpm = (index: number, rpm: number) => {
     updateStateOptimistically(
       (current) => {
         if (current.data.axis_speeds && index >= 0 && index < 4) {
           // RPM to Hz: rpm * 200 / 60
-          current.data.axis_speeds[index] = Math.round(rpm * PULSES_PER_REV / 60);
+          current.data.axis_speeds[index] = Math.round(
+            (rpm * PULSES_PER_REV) / 60,
+          );
         }
       },
       () =>
@@ -233,11 +244,17 @@ function useBbmAutomatik(
   const { request: requestMoveToPosition } =
     useMachineMutation(moveToPositionSchema);
 
-  const moveToPosition = (index: number, position_mm: number, speed_mm_s: number) => {
+  const moveToPosition = (
+    index: number,
+    position_mm: number,
+    speed_mm_s: number,
+  ) => {
     updateStateOptimistically(
       (current) => {
         if (current.data.axis_target_positions && index >= 0 && index < 4) {
-          current.data.axis_target_positions[index] = Math.round(position_mm * PULSES_PER_MM);
+          current.data.axis_target_positions[index] = Math.round(
+            position_mm * PULSES_PER_MM,
+          );
           current.data.axis_position_mode[index] = true;
         }
       },
@@ -260,8 +277,9 @@ function useBbmAutomatik(
       accel_mm_s2: z.number(),
     }),
   });
-  const { request: requestSetAxisAcceleration } =
-    useMachineMutation(setAxisAccelerationSchema);
+  const { request: requestSetAxisAcceleration } = useMachineMutation(
+    setAxisAccelerationSchema,
+  );
 
   const setAxisAcceleration = (index: number, accel_mm_s2: number) => {
     updateStateOptimistically(
@@ -288,8 +306,9 @@ function useBbmAutomatik(
       on: z.boolean(),
     }),
   });
-  const { request: requestSetRuettelmotor } =
-    useMachineMutation(setRuettelmotorSchema);
+  const { request: requestSetRuettelmotor } = useMachineMutation(
+    setRuettelmotorSchema,
+  );
 
   const setRuettelmotor = (on: boolean) => {
     updateStateOptimistically(
@@ -359,7 +378,8 @@ function useBbmAutomatik(
       index: z.number(),
     }),
   });
-  const { request: requestCancelHoming } = useMachineMutation(cancelHomingSchema);
+  const { request: requestCancelHoming } =
+    useMachineMutation(cancelHomingSchema);
 
   const cancelHoming = (index: number) => {
     updateStateOptimistically(
@@ -388,7 +408,7 @@ function useBbmAutomatik(
   // Helper to get axis speed in RPM (for rotation axes)
   const getAxisSpeedRpm = (index: number): number | undefined => {
     const speedHz = stateOptimistic.value?.data.axis_speeds[index];
-    return speedHz !== undefined ? speedHz * 60 / PULSES_PER_REV : undefined;
+    return speedHz !== undefined ? (speedHz * 60) / PULSES_PER_REV : undefined;
   };
 
   // Helper to get axis position in mm
