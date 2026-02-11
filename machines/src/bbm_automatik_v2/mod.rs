@@ -378,7 +378,10 @@ impl BbmAutomatikV2 {
 
                 tracing::debug!(
                     "[BbmAutomatikV2] SDO write axis {}: ramp rising={}ms falling={}ms (accel={:.0} mm/s²)",
-                    index, rising_ms, falling_ms, clamped
+                    index,
+                    rising_ms,
+                    falling_ms,
+                    clamped
                 );
 
                 // Rising ramp (0x14)
@@ -386,7 +389,9 @@ impl BbmAutomatikV2 {
                 // Falling ramp (0x15)
                 sdo_write(subdevice_index, pto_base, 0x15, falling_ms);
             } else {
-                tracing::warn!("[BbmAutomatikV2] SDO write not available - acceleration change will not take effect");
+                tracing::warn!(
+                    "[BbmAutomatikV2] SDO write not available - acceleration change will not take effect"
+                );
             }
             self.emit_state();
         }
@@ -406,7 +411,9 @@ impl BbmAutomatikV2 {
             if (clamped_mm - position_mm).abs() > 0.1 {
                 tracing::warn!(
                     "[BbmAutomatikV2] Axis {} position clamped: {:.1} mm -> {:.1} mm (soft limit)",
-                    index, position_mm, clamped_mm
+                    index,
+                    position_mm,
+                    clamped_mm
                 );
             }
 
@@ -485,13 +492,19 @@ impl BbmAutomatikV2 {
                     if deviation > 2 {
                         tracing::warn!(
                             "[Axis {}] STEP LOSS DETECTED: target={} actual={} deviation={} pulses ({:.2} mm)",
-                            i, target_pos, actual_pos, deviation,
+                            i,
+                            target_pos,
+                            actual_pos,
+                            deviation,
                             deviation as f32 / mechanics::PULSES_PER_MM
                         );
                     } else {
                         tracing::info!(
                             "[Axis {}] Target reached: {} pulses (actual: {}, deviation: {})",
-                            i, target_pos, actual_pos, deviation
+                            i,
+                            target_pos,
+                            actual_pos,
+                            deviation
                         );
                     }
                 }
@@ -501,14 +514,21 @@ impl BbmAutomatikV2 {
             if !self.axis_position_mode[i] {
                 // Check soft limits during JOG
                 if let Some(max_mm) = soft_limits::max_position_mm(i) {
-                    let current_mm = self.axes[i].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
+                    let current_mm = self.axes[i].get_position() as i32 as f32
+                        / mechanics::PULSES_PER_MM;
                     let target = self.axis_target_speeds[i];
 
                     // Stop if at max and moving positive, or at min and moving negative
-                    if (current_mm >= max_mm && target > 0) || (current_mm <= soft_limits::MIN_MM && target < 0) {
+                    if (current_mm >= max_mm && target > 0)
+                        || (current_mm <= soft_limits::MIN_MM && target < 0)
+                    {
                         if self.axis_target_speeds[i] != 0 {
                             self.axis_target_speeds[i] = 0;
-                            tracing::warn!("[BbmAutomatikV2] Axis {} soft limit reached at {:.1} mm - stopping", i, current_mm);
+                            tracing::warn!(
+                                "[BbmAutomatikV2] Axis {} soft limit reached at {:.1} mm - stopping",
+                                i,
+                                current_mm
+                            );
                         }
                     }
                 }

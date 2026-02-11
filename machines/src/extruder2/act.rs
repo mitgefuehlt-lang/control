@@ -70,11 +70,10 @@ impl MachineAct for ExtruderV3 {
                 /*Doesnt connect to any Machine so do nothing*/
                 {}
             MachineMessage::RequestValues(sender) => {
-                let state =
-                    serde_json::to_value(self.build_state_event()).unwrap_or_else(|e| {
-                        tracing::error!("[Extruder2] Failed to serialize state: {}", e);
-                        serde_json::Value::Null
-                    });
+                let state = serde_json::to_value(self.build_state_event()).unwrap_or_else(|e| {
+                    tracing::error!("[Extruder2] Failed to serialize state: {}", e);
+                    serde_json::Value::Null
+                });
                 let live_values =
                     serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
                         tracing::error!("[Extruder2] Failed to serialize live values: {}", e);

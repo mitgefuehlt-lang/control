@@ -40,17 +40,13 @@ impl MachineAct for Winder2 {
                 ()
             }
             MachineMessage::RequestValues(sender) => {
-                let state =
-                    serde_json::to_value(self.build_state_event()).unwrap_or_else(|e| {
-                        tracing::error!("[Winder2Mock] Failed to serialize state: {}", e);
-                        serde_json::Value::Null
-                    });
+                let state = serde_json::to_value(self.build_state_event()).unwrap_or_else(|e| {
+                    tracing::error!("[Winder2Mock] Failed to serialize state: {}", e);
+                    serde_json::Value::Null
+                });
                 let live_values =
                     serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
-                        tracing::error!(
-                            "[Winder2Mock] Failed to serialize live values: {}",
-                            e
-                        );
+                        tracing::error!("[Winder2Mock] Failed to serialize live values: {}", e);
                         serde_json::Value::Null
                     });
                 let _ = sender.send_blocking(MachineValues { state, live_values });
