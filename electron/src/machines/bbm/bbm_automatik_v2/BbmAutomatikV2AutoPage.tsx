@@ -11,39 +11,55 @@ import { useState } from "react";
 type SpeedPreset = "slow" | "medium" | "fast";
 
 export function BbmAutomatikV2AutoPage() {
-  const { liveValues, areDoorsClosed, isDisabled, isLoading, INPUT } =
-    useBbmAutomatikV2();
+  const {
+    state,
+    liveValues,
+    isDisabled,
+    isLoading,
+    INPUT,
+    isDoorInterlockActive,
+    isAutoRunning,
+    isAnyAlarmActive,
+    startAutoSequence,
+    stopAutoSequence,
+  } = useBbmAutomatikV2();
 
   // Local state
   const [speedPreset, setSpeedPreset] = useState<SpeedPreset>("slow");
   const [magazinSets, setMagazinSets] = useState<number>(1);
-  const [isRunning, setIsRunning] = useState(false);
 
-  // Progress (placeholder)
-  const currentSet = 0;
-  const currentBlock = 0;
-  const currentCycle = 0;
+  // Server state
+  const autoRunning = isAutoRunning();
+  const doorInterlock = isDoorInterlockActive();
+  const hasAlarm = isAnyAlarmActive();
+
+  // Progress from server
+  const currentSet = state?.auto_current_set ?? 0;
+  const currentBlock = state?.auto_current_block ?? 0;
+  const currentCycle = state?.auto_current_cycle ?? 0;
+  const totalSets = state?.auto_total_sets ?? magazinSets;
 
   // Door sensor
   const doorClosed = liveValues?.input_states[INPUT.TUER] ?? false;
-  const doorsAreSafe = doorClosed;
+  const canStart = doorClosed && !hasAlarm && !autoRunning && !doorInterlock;
 
   const handleStart = () => {
-    if (!doorsAreSafe) {
-      console.log("Türen müssen geschlossen sein!");
-      return;
-    }
-    setIsRunning(true);
-    console.log("Automatik Start", { speedPreset, magazinSets });
+    startAutoSequence(speedPreset, magazinSets);
   };
 
   const handleStop = () => {
-    setIsRunning(false);
-    console.log("Automatik Stop");
+    stopAutoSequence();
   };
 
   return (
     <Page>
+      {/* Door interlock banner */}
+      {doorInterlock && (
+        <div className="mb-4 animate-pulse rounded-lg bg-red-600 px-4 py-3 text-center text-lg font-bold text-white">
+          TÜR OFFEN - NOTFALL-STOPP AKTIV
+        </div>
+      )}
+
       <ControlGrid columns={2}>
         {/* Parameter */}
         <ControlCard title="Parameter">
@@ -55,7 +71,7 @@ export function BbmAutomatikV2AutoPage() {
                     key={preset}
                     variant={speedPreset === preset ? "default" : "outline"}
                     onClick={() => setSpeedPreset(preset)}
-                    disabled={isRunning}
+                    disabled={autoRunning}
                     className={`h-12 flex-1 ${
                       speedPreset === preset
                         ? preset === "slow"
@@ -93,7 +109,7 @@ export function BbmAutomatikV2AutoPage() {
                 variant="default"
                 icon="lu:Play"
                 onClick={handleStart}
-                disabled={isDisabled || isRunning || !doorsAreSafe}
+                disabled={isDisabled || !canStart}
                 isLoading={isLoading}
                 className="h-14 flex-1 bg-green-600 text-lg hover:bg-green-700"
               >
@@ -104,9 +120,9 @@ export function BbmAutomatikV2AutoPage() {
                 variant="destructive"
                 icon="lu:Square"
                 onClick={handleStop}
-                disabled={isDisabled || !isRunning}
+                disabled={isDisabled || !autoRunning}
                 isLoading={isLoading}
-                className={`h-14 flex-1 text-lg ${!isRunning && !isDisabled ? "border-gray-400 bg-gray-400 text-gray-600 hover:bg-gray-400" : ""}`}
+                className={`h-14 flex-1 text-lg ${!autoRunning && !isDisabled ? "border-gray-400 bg-gray-400 text-gray-600 hover:bg-gray-400" : ""}`}
               >
                 STOP
               </TouchButton>
@@ -139,9 +155,15 @@ export function BbmAutomatikV2AutoPage() {
               </Label>
             </div>
 
-            {!doorsAreSafe && (
+            {!doorClosed && !autoRunning && (
               <div className="rounded bg-red-100 p-3 font-semibold text-red-800">
                 Tür muss geschlossen sein bevor Automatik gestartet werden kann!
+              </div>
+            )}
+
+            {hasAlarm && (
+              <div className="rounded bg-red-100 p-3 font-semibold text-red-800">
+                Treiber-Alarm aktiv - bitte zuerst zurücksetzen!
               </div>
             )}
 
@@ -151,7 +173,7 @@ export function BbmAutomatikV2AutoPage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div className="bg-muted rounded p-2 text-center">
                     <div className="font-mono text-2xl">
-                      {currentSet}/{magazinSets}
+                      {currentSet}/{autoRunning ? totalSets : magazinSets}
                     </div>
                     <div className="text-muted-foreground text-xs">Set</div>
                   </div>
@@ -167,7 +189,7 @@ export function BbmAutomatikV2AutoPage() {
               </Label>
             </div>
 
-            {isRunning && (
+            {autoRunning && (
               <div className="animate-pulse text-center text-lg font-semibold text-green-600">
                 Automatik läuft...
               </div>

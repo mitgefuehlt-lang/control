@@ -18,6 +18,12 @@ impl MachineAct for BbmAutomatikV2 {
             self.emit_state();
         }
 
+        // Door interlock check (second highest priority)
+        let door_triggered = self.check_door_interlock();
+        if door_triggered {
+            self.emit_state();
+        }
+
         // Hardware monitor: watch hardware status, no timing needed
         let status_changed = self.update_hardware_monitor();
         if status_changed {
@@ -26,6 +32,12 @@ impl MachineAct for BbmAutomatikV2 {
 
         // Check homing status (reference switches)
         self.update_homing();
+
+        // Auto-sequence state machine
+        let auto_changed = self.update_auto_sequence();
+        if auto_changed {
+            self.emit_state();
+        }
 
         // Emit state and live values at ~30 Hz
         if now.duration_since(self.last_state_emit) > Duration::from_secs_f64(1.0 / 30.0) {

@@ -463,6 +463,53 @@ function useBbmAutomatik(
     return liveValues.data.input_states[INPUT.TUER];
   };
 
+  // Door interlock helper
+  const isDoorInterlockActive = (): boolean => {
+    return stateOptimistic.value?.data.door_interlock_active ?? false;
+  };
+
+  // Auto-sequence helpers
+  const isAutoRunning = (): boolean => {
+    return stateOptimistic.value?.data.auto_running ?? false;
+  };
+
+  // StartAutoSequence mutation
+  const startAutoSequenceSchema = z.object({
+    action: z.literal("StartAutoSequence"),
+    value: z.object({
+      speed_preset: z.string(),
+      total_sets: z.number(),
+    }),
+  });
+  const { request: requestStartAutoSequence } = useMachineMutation(
+    startAutoSequenceSchema,
+  );
+
+  const startAutoSequence = (speed_preset: string, total_sets: number) => {
+    requestStartAutoSequence({
+      machine_identification_unique,
+      data: {
+        action: "StartAutoSequence",
+        value: { speed_preset, total_sets },
+      },
+    });
+  };
+
+  // StopAutoSequence mutation
+  const stopAutoSequenceSchema = z.object({
+    action: z.literal("StopAutoSequence"),
+  });
+  const { request: requestStopAutoSequence } = useMachineMutation(
+    stopAutoSequenceSchema,
+  );
+
+  const stopAutoSequence = () => {
+    requestStopAutoSequence({
+      machine_identification_unique,
+      data: { action: "StopAutoSequence" },
+    });
+  };
+
   return {
     // State
     state: stateOptimistic.value?.data,
@@ -491,6 +538,14 @@ function useBbmAutomatik(
     setRuettelmotor,
     setAmpel,
     areDoorsClosed: areDoorsClosedFn,
+
+    // Door interlock
+    isDoorInterlockActive,
+
+    // Auto-sequence
+    isAutoRunning,
+    startAutoSequence,
+    stopAutoSequence,
 
     // Alarm functions
     resetAlarms,

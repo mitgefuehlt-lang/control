@@ -66,6 +66,12 @@ export const stateEventDataSchema = z.object({
     z.boolean(),
     z.boolean(),
   ]),
+  door_interlock_active: z.boolean(),
+  auto_running: z.boolean(),
+  auto_current_set: z.number(),
+  auto_current_block: z.number(),
+  auto_current_cycle: z.number(),
+  auto_total_sets: z.number(),
 });
 
 /**

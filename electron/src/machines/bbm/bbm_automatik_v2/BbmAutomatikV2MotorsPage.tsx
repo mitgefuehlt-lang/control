@@ -464,6 +464,7 @@ export function BbmAutomatikV2MotorsPage() {
     setRuettelmotor,
     resetAlarms,
     isAnyAlarmActive,
+    isDoorInterlockActive,
     state,
     isDisabled,
     isLoading,
@@ -472,9 +473,17 @@ export function BbmAutomatikV2MotorsPage() {
 
   const ruettelmotorOn = state?.output_states[OUTPUT.RUETTELMOTOR] ?? false;
   const hasAlarm = isAnyAlarmActive();
+  const doorInterlock = isDoorInterlockActive();
 
   return (
     <Page>
+      {/* Door interlock banner */}
+      {doorInterlock && (
+        <div className="mb-4 animate-pulse rounded-lg bg-red-600 px-4 py-3 text-center text-lg font-bold text-white">
+          TÜR OFFEN - NOTFALL-STOPP AKTIV
+        </div>
+      )}
+
       {/* Global alarm reset banner */}
       {hasAlarm && (
         <div className="mb-4 flex items-center justify-between rounded-lg bg-red-600 px-4 py-3 text-white">

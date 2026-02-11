@@ -77,6 +77,79 @@ pub mod homing {
     pub const RETRACT_DISTANCE_MM: f32 = 2.0;
 }
 
+/// Speed presets for auto-sequence (mm/s)
+pub mod speed_presets {
+    #[derive(Debug, Clone, Copy)]
+    pub struct SpeedPreset {
+        pub mt_mm_s: f32,
+        pub schieber_mm_s: f32,
+        pub druecker_mm_s: f32,
+        pub buerste_rpm: f32,
+    }
+    pub const SLOW: SpeedPreset = SpeedPreset {
+        mt_mm_s: 30.0,
+        schieber_mm_s: 40.0,
+        druecker_mm_s: 40.0,
+        buerste_rpm: 30.0,
+    };
+    pub const MEDIUM: SpeedPreset = SpeedPreset {
+        mt_mm_s: 60.0,
+        schieber_mm_s: 80.0,
+        druecker_mm_s: 80.0,
+        buerste_rpm: 50.0,
+    };
+    pub const FAST: SpeedPreset = SpeedPreset {
+        mt_mm_s: 100.0,
+        schieber_mm_s: 150.0,
+        druecker_mm_s: 150.0,
+        buerste_rpm: 70.0,
+    };
+}
+
+/// Position constants (mm) from Arduino v3.2
+pub mod auto_positions {
+    pub const MT_START: f32 = 5.0;
+    pub const MT_RUN: f32 = 34.5;
+    pub const MT_ADVANCE_PER_CYCLE: f32 = 10.0;
+    pub const SCHIEBER_START: f32 = 7.0;
+    pub const SCHIEBER_TARGET: f32 = 51.0;
+    pub const SCHIEBER_WOBBLE: f32 = 1.5;
+    pub const DRUECKER_START: f32 = 60.0;
+    pub const DRUECKER_TARGET: f32 = 105.0;
+    pub const CYCLES_PER_BLOCK: u32 = 19;
+    pub const BLOCKS_PER_SET: u32 = 3;
+}
+
+/// Cycle step within one fill cycle
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AutoCycleStep {
+    /// Step 1a: Wobble schieber out (+wobble from start)
+    WobbleOut,
+    /// Step 1b: Wobble schieber back (-wobble from start)
+    WobbleBack,
+    /// Step 2: Schieber to target (filters fall into magazine)
+    SchieberToTarget,
+    /// Step 3: Drücker pushes hanging filters
+    DrueckerToTarget,
+    /// Step 4: Drücker + Schieber return in parallel, MT advances
+    ParallelReturn,
+    /// Wait for all parallel moves to complete
+    WaitParallelComplete,
+}
+
+/// Top-level auto-sequence state
+#[derive(Debug, Clone)]
+pub struct AutoSequenceState {
+    pub speed_preset_name: String,
+    pub speed: speed_presets::SpeedPreset,
+    pub total_sets: u32,
+    pub current_set: u32,
+    pub current_block: u32,
+    pub current_cycle: u32,
+    pub current_step: AutoCycleStep,
+    pub mt_current_run_pos: f32,
+}
+
 /// Homing phases
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HomingPhase {
@@ -171,6 +244,12 @@ pub struct BbmAutomatikV2 {
     /// true = alarm active (axis stopped), per axis
     pub axis_alarm_active: [bool; 4],
 
+    // Door interlock
+    pub door_interlock_active: bool,
+
+    // Auto-sequence state machine
+    pub auto_sequence: Option<AutoSequenceState>,
+
     // Debug logging
     pub last_debug_log: Option<Instant>,
 }
@@ -222,6 +301,12 @@ impl BbmAutomatikV2 {
                 soft_limits::max_position_mm(3),
             ],
             axis_alarm_active: self.axis_alarm_active,
+            door_interlock_active: self.door_interlock_active,
+            auto_running: self.auto_sequence.is_some(),
+            auto_current_set: self.auto_sequence.as_ref().map(|s| s.current_set).unwrap_or(0),
+            auto_current_block: self.auto_sequence.as_ref().map(|s| s.current_block).unwrap_or(0),
+            auto_current_cycle: self.auto_sequence.as_ref().map(|s| s.current_cycle).unwrap_or(0),
+            auto_total_sets: self.auto_sequence.as_ref().map(|s| s.total_sets).unwrap_or(0),
         }
     }
 
@@ -791,6 +876,240 @@ impl BbmAutomatikV2 {
                     }
                 }
             }
+        }
+    }
+
+    // ============ Door Interlock ============
+
+    /// Door interlock: if door opens during operation, emergency-stop all axes
+    /// Returns true if interlock state changed (for UI update)
+    pub fn check_door_interlock(&mut self) -> bool {
+        let door_closed = self.are_doors_closed();
+        let any_moving = self.axis_speeds.iter().any(|&s| s != 0)
+            || self.auto_sequence.is_some();
+
+        if !door_closed && any_moving && !self.door_interlock_active {
+            tracing::warn!("[BbmAutomatikV2] !!! DOOR OPEN - Emergency stop !!!");
+            self.door_interlock_active = true;
+            self.stop_all_axes();
+            // Abort auto sequence if running
+            if self.auto_sequence.is_some() {
+                self.auto_sequence = None;
+                self.set_ruettelmotor(false);
+                self.set_ampel(true, false, false);
+            }
+            return true;
+        }
+
+        // Auto-reset when door closes again
+        if door_closed && self.door_interlock_active {
+            self.door_interlock_active = false;
+            tracing::info!("[BbmAutomatikV2] Door closed - interlock reset");
+            return true;
+        }
+        false
+    }
+
+    // ============ Auto-Sequence State Machine ============
+
+    /// Update auto-sequence state machine (called from act() loop)
+    /// Returns true if state changed (for UI update)
+    pub fn update_auto_sequence(&mut self) -> bool {
+        let seq = match &self.auto_sequence {
+            Some(s) => s.clone(),
+            None => return false,
+        };
+
+        match seq.current_step {
+            AutoCycleStep::WobbleOut => {
+                if !self.axis_position_mode[axes::SCHIEBER] {
+                    // Wobble out complete, now wobble back
+                    self.move_to_position_mm(
+                        axes::SCHIEBER,
+                        auto_positions::SCHIEBER_START - auto_positions::SCHIEBER_WOBBLE,
+                        seq.speed.schieber_mm_s,
+                    );
+                    self.auto_sequence.as_mut().unwrap().current_step =
+                        AutoCycleStep::WobbleBack;
+                    return true;
+                }
+            }
+            AutoCycleStep::WobbleBack => {
+                if !self.axis_position_mode[axes::SCHIEBER] {
+                    // Wobble done, schieber to target
+                    self.move_to_position_mm(
+                        axes::SCHIEBER,
+                        auto_positions::SCHIEBER_TARGET,
+                        seq.speed.schieber_mm_s,
+                    );
+                    self.auto_sequence.as_mut().unwrap().current_step =
+                        AutoCycleStep::SchieberToTarget;
+                    return true;
+                }
+            }
+            AutoCycleStep::SchieberToTarget => {
+                if !self.axis_position_mode[axes::SCHIEBER] {
+                    // Schieber at target, now drücker pushes
+                    self.move_to_position_mm(
+                        axes::DRUECKER,
+                        auto_positions::DRUECKER_TARGET,
+                        seq.speed.druecker_mm_s,
+                    );
+                    self.auto_sequence.as_mut().unwrap().current_step =
+                        AutoCycleStep::DrueckerToTarget;
+                    return true;
+                }
+            }
+            AutoCycleStep::DrueckerToTarget => {
+                if !self.axis_position_mode[axes::DRUECKER] {
+                    // Drücker done, parallel return
+                    self.move_to_position_mm(
+                        axes::DRUECKER,
+                        auto_positions::DRUECKER_START,
+                        seq.speed.druecker_mm_s,
+                    );
+                    self.move_to_position_mm(
+                        axes::SCHIEBER,
+                        auto_positions::SCHIEBER_START,
+                        seq.speed.schieber_mm_s,
+                    );
+                    let new_mt_pos =
+                        seq.mt_current_run_pos - auto_positions::MT_ADVANCE_PER_CYCLE;
+                    self.move_to_position_mm(axes::MT, new_mt_pos, seq.speed.mt_mm_s);
+                    let s = self.auto_sequence.as_mut().unwrap();
+                    s.mt_current_run_pos = new_mt_pos;
+                    s.current_step = AutoCycleStep::ParallelReturn;
+                    return true;
+                }
+            }
+            AutoCycleStep::ParallelReturn | AutoCycleStep::WaitParallelComplete => {
+                // Wait for all 3 moves to complete
+                let schieber_done = !self.axis_position_mode[axes::SCHIEBER];
+                let druecker_done = !self.axis_position_mode[axes::DRUECKER];
+                let mt_done = !self.axis_position_mode[axes::MT];
+                if schieber_done && druecker_done && mt_done {
+                    return self.advance_auto_sequence();
+                }
+            }
+        }
+        false
+    }
+
+    /// Advance to next cycle/block/set or finish
+    fn advance_auto_sequence(&mut self) -> bool {
+        let seq = self.auto_sequence.as_mut().unwrap();
+        seq.current_cycle += 1;
+
+        if seq.current_cycle >= auto_positions::CYCLES_PER_BLOCK {
+            // Block complete
+            seq.current_cycle = 0;
+            seq.current_block += 1;
+
+            if seq.current_block >= auto_positions::BLOCKS_PER_SET {
+                // Set complete
+                seq.current_block = 0;
+                seq.current_set += 1;
+
+                if seq.current_set >= seq.total_sets {
+                    // ALL DONE
+                    tracing::info!("[BbmAutomatikV2] Auto sequence COMPLETE");
+                    self.set_ruettelmotor(false);
+                    self.set_ampel(false, false, true); // Green = done
+                    self.auto_sequence = None;
+                    return true;
+                }
+            }
+            // New block: reset MT position
+            seq.mt_current_run_pos = auto_positions::MT_RUN;
+        }
+
+        self.start_auto_cycle();
+        true
+    }
+
+    /// Start a single fill cycle (wobble -> schieber -> drücker -> return)
+    fn start_auto_cycle(&mut self) {
+        let seq = self.auto_sequence.as_ref().unwrap();
+        let speed = seq.speed;
+
+        // Start wobble: move schieber +wobble from start
+        self.move_to_position_mm(
+            axes::SCHIEBER,
+            auto_positions::SCHIEBER_START + auto_positions::SCHIEBER_WOBBLE,
+            speed.schieber_mm_s,
+        );
+
+        self.auto_sequence.as_mut().unwrap().current_step = AutoCycleStep::WobbleOut;
+    }
+
+    /// Start auto-sequence with given speed preset and number of sets
+    pub fn start_auto_sequence(&mut self, speed_preset: &str, total_sets: u32) {
+        // Safety checks
+        if !self.are_doors_closed() {
+            tracing::warn!("[BbmAutomatikV2] Cannot start: doors not closed");
+            return;
+        }
+        if self.axis_alarm_active.iter().any(|&a| a) {
+            tracing::warn!("[BbmAutomatikV2] Cannot start: alarm active");
+            return;
+        }
+        if self.auto_sequence.is_some() {
+            tracing::warn!("[BbmAutomatikV2] Cannot start: already running");
+            return;
+        }
+
+        let speed = match speed_preset {
+            "medium" => speed_presets::MEDIUM,
+            "fast" => speed_presets::FAST,
+            _ => speed_presets::SLOW,
+        };
+
+        // Initialize sequence
+        self.auto_sequence = Some(AutoSequenceState {
+            speed_preset_name: speed_preset.to_string(),
+            speed,
+            total_sets,
+            current_set: 0,
+            current_block: 0,
+            current_cycle: 0,
+            current_step: AutoCycleStep::WaitParallelComplete,
+            mt_current_run_pos: auto_positions::MT_RUN,
+        });
+
+        // Start: Rüttler on, Ampel gelb (running)
+        self.set_ruettelmotor(true);
+        self.set_ampel(false, true, false);
+
+        // Move all axes to start positions
+        self.move_to_position_mm(axes::MT, auto_positions::MT_RUN, speed.mt_mm_s);
+        self.move_to_position_mm(
+            axes::SCHIEBER,
+            auto_positions::SCHIEBER_START,
+            speed.schieber_mm_s,
+        );
+        self.move_to_position_mm(
+            axes::DRUECKER,
+            auto_positions::DRUECKER_START,
+            speed.druecker_mm_s,
+        );
+
+        tracing::info!(
+            "[BbmAutomatikV2] Auto sequence started: preset={}, sets={}",
+            speed_preset,
+            total_sets
+        );
+        self.emit_state();
+    }
+
+    /// Stop auto-sequence and all axes
+    pub fn stop_auto_sequence(&mut self) {
+        if self.auto_sequence.is_some() {
+            self.auto_sequence = None;
+            self.stop_all_axes();
+            self.set_ruettelmotor(false);
+            self.set_ampel(true, false, false); // Red = stopped
+            tracing::info!("[BbmAutomatikV2] Auto sequence stopped by user");
+            self.emit_state();
         }
     }
 }

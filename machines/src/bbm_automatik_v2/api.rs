@@ -22,6 +22,12 @@ pub struct StateEvent {
     pub axis_homing_active: [bool; 4],
     pub axis_soft_limit_max: [Option<f32>; 4],
     pub axis_alarm_active: [bool; 4],
+    pub door_interlock_active: bool,
+    pub auto_running: bool,
+    pub auto_current_set: u32,
+    pub auto_current_block: u32,
+    pub auto_current_cycle: u32,
+    pub auto_total_sets: u32,
 }
 
 impl StateEvent {
@@ -85,6 +91,10 @@ pub enum Mutation {
     CancelHoming { index: usize },
     /// Reset all driver alarms
     ResetAlarms,
+    /// Start auto-sequence with speed preset and number of sets
+    StartAutoSequence { speed_preset: String, total_sets: u32 },
+    /// Stop auto-sequence
+    StopAutoSequence,
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +155,10 @@ impl MachineApi for BbmAutomatikV2 {
             Mutation::StartHoming { index } => self.start_homing(index),
             Mutation::CancelHoming { index } => self.cancel_homing(index),
             Mutation::ResetAlarms => self.reset_alarms(),
+            Mutation::StartAutoSequence { speed_preset, total_sets } => {
+                self.start_auto_sequence(&speed_preset, total_sets);
+            }
+            Mutation::StopAutoSequence => self.stop_auto_sequence(),
         }
         Ok(())
     }

@@ -222,6 +222,8 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 ],
                 axis_homing_retract_target: [0; 4],
                 axis_alarm_active: [false; 4],
+                door_interlock_active: false,
+                auto_sequence: None,
                 last_debug_log: None,
             };
 
