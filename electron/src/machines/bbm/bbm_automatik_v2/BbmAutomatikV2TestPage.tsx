@@ -1,3 +1,4 @@
+import React from "react";
 import { ControlCard } from "@/control/ControlCard";
 import { Page } from "@/components/Page";
 import { ControlGrid } from "@/control/ControlGrid";
