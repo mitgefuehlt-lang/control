@@ -33,13 +33,13 @@ pub mod axes {
 
 /// Digital input indices (0-based array index, DI1 = index 0)
 pub mod inputs {
-    pub const REF_MT: usize = 0;        // Referenzschalter Transporter (DI1 = index 0)
-    pub const REF_SCHIEBER: usize = 1;  // Referenzschalter Schieber (DI2 = index 1)
-    pub const REF_DRUECKER: usize = 2;  // Referenzschalter Drücker (DI3 = index 2)
-    pub const ALARM_MT: usize = 3;       // CL75t Alarm Transporter (DI4 = index 3)
+    pub const REF_MT: usize = 0; // Referenzschalter Transporter (DI1 = index 0)
+    pub const REF_SCHIEBER: usize = 1; // Referenzschalter Schieber (DI2 = index 1)
+    pub const REF_DRUECKER: usize = 2; // Referenzschalter Drücker (DI3 = index 2)
+    pub const ALARM_MT: usize = 3; // CL75t Alarm Transporter (DI4 = index 3)
     pub const ALARM_SCHIEBER: usize = 4; // CL75t Alarm Schieber (DI5 = index 4)
     pub const ALARM_DRUECKER: usize = 5; // CL75t Alarm Drücker (DI6 = index 5)
-    pub const TUER: usize = 6;           // Türsensor (DI7 = index 6)
+    pub const TUER: usize = 6; // Türsensor (DI7 = index 6)
 }
 
 /// Digital output indices
@@ -514,8 +514,8 @@ impl BbmAutomatikV2 {
             if !self.axis_position_mode[i] {
                 // Check soft limits during JOG
                 if let Some(max_mm) = soft_limits::max_position_mm(i) {
-                    let current_mm = self.axes[i].get_position() as i32 as f32
-                        / mechanics::PULSES_PER_MM;
+                    let current_mm =
+                        self.axes[i].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
                     let target = self.axis_target_speeds[i];
 
                     // Stop if at max and moving positive, or at min and moving negative

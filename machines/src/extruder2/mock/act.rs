@@ -44,10 +44,7 @@ impl MachineAct for ExtruderV2 {
                 });
                 let live_values =
                     serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
-                        tracing::error!(
-                            "[Extruder2Mock] Failed to serialize live values: {}",
-                            e
-                        );
+                        tracing::error!("[Extruder2Mock] Failed to serialize live values: {}", e);
                         serde_json::Value::Null
                     });
                 let _ = sender.send_blocking(MachineValues { state, live_values });

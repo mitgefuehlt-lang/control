@@ -241,13 +241,18 @@ impl SchneidemaschineV0 {
 
                 tracing::debug!(
                     "[SchneidemaschineV0] SDO write axis {}: ramp rising={}ms falling={}ms (accel={:.0} mm/s²)",
-                    index, rising_ms, falling_ms, clamped
+                    index,
+                    rising_ms,
+                    falling_ms,
+                    clamped
                 );
 
                 sdo_write(subdevice_index, pto_base, 0x14, rising_ms);
                 sdo_write(subdevice_index, pto_base, 0x15, falling_ms);
             } else {
-                tracing::warn!("[SchneidemaschineV0] SDO write not available - acceleration change will not take effect");
+                tracing::warn!(
+                    "[SchneidemaschineV0] SDO write not available - acceleration change will not take effect"
+                );
             }
             self.emit_state();
         }
@@ -322,13 +327,19 @@ impl SchneidemaschineV0 {
                     if deviation > 2 {
                         tracing::warn!(
                             "[Axis {}] STEP LOSS DETECTED: target={} actual={} deviation={} pulses ({:.2} mm)",
-                            i, target_pos, actual_pos, deviation,
+                            i,
+                            target_pos,
+                            actual_pos,
+                            deviation,
                             deviation as f32 / mechanics::PULSES_PER_MM
                         );
                     } else {
                         tracing::info!(
                             "[Axis {}] Target reached: {} pulses (actual: {}, deviation: {})",
-                            i, target_pos, actual_pos, deviation
+                            i,
+                            target_pos,
+                            actual_pos,
+                            deviation
                         );
                     }
                 }

@@ -79,10 +79,11 @@ impl MachineAct for BbmAutomatikV2 {
                     tracing::error!("[BbmAutomatikV2] Failed to serialize state: {}", e);
                     serde_json::Value::Null
                 });
-                let live_values = serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
-                    tracing::error!("[BbmAutomatikV2] Failed to serialize live values: {}", e);
-                    serde_json::Value::Null
-                });
+                let live_values =
+                    serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
+                        tracing::error!("[BbmAutomatikV2] Failed to serialize live values: {}", e);
+                        serde_json::Value::Null
+                    });
                 let _ = sender.send_blocking(MachineValues { state, live_values });
                 sender.close();
             }
