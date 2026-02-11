@@ -32,13 +32,14 @@ impl MachineAct for TestMachine {
                 // Does not connect to any Machine; do nothing
             }
             MachineMessage::RequestValues(sender) => {
-                sender
-                    .send_blocking(MachineValues {
-                        state: serde_json::to_value(self.get_state())
-                            .expect("Failed to serialize state"),
-                        live_values: serde_json::Value::Null,
-                    })
-                    .expect("Failed to send values");
+                let state = serde_json::to_value(self.get_state()).unwrap_or_else(|e| {
+                    tracing::error!("[TestMachine] Failed to serialize state: {}", e);
+                    serde_json::Value::Null
+                });
+                let _ = sender.send_blocking(MachineValues {
+                    state,
+                    live_values: serde_json::Value::Null,
+                });
                 sender.close();
             }
         }

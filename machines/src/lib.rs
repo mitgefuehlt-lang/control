@@ -536,20 +536,21 @@ where
                 let _ = self.api_mutate(value);
             }
             MachineMessage::ConnectToMachine(_machine_connection) => {
-                todo!();
+                // Machine cross-connection not yet implemented
             }
             MachineMessage::DisconnectMachine(_machine_connection) => {
-                todo!();
+                // Machine cross-connection not yet implemented
             }
             MachineMessage::RequestValues(sender) => {
-                sender
-                    .send_blocking(MachineValues {
-                        state: serde_json::to_value(self.get_state())
-                            .expect("Failed to serialize state"),
-                        live_values: serde_json::to_value(self.get_live_values())
-                            .expect("Failed to serialize live values"),
-                    })
-                    .expect("Failed to send values");
+                let state = serde_json::to_value(self.get_state()).unwrap_or_else(|e| {
+                    tracing::error!("Failed to serialize state: {}", e);
+                    serde_json::Value::Null
+                });
+                let live_values = serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
+                    tracing::error!("Failed to serialize live values: {}", e);
+                    serde_json::Value::Null
+                });
+                let _ = sender.send_blocking(MachineValues { state, live_values });
                 sender.close();
             }
         }

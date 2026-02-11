@@ -21,6 +21,7 @@ pub struct StateEvent {
     pub axis_position_mode: [bool; 4],
     pub axis_homing_active: [bool; 4],
     pub axis_soft_limit_max: [Option<f32>; 4],
+    pub axis_alarm_active: [bool; 4],
 }
 
 impl StateEvent {
@@ -82,6 +83,8 @@ pub enum Mutation {
     StartHoming { index: usize },
     /// Cancel homing for an axis
     CancelHoming { index: usize },
+    /// Reset all driver alarms
+    ResetAlarms,
 }
 
 #[derive(Debug, Clone)]
@@ -141,6 +144,7 @@ impl MachineApi for BbmAutomatikV2 {
             Mutation::SetAmpel { rot, gelb, gruen } => self.set_ampel(rot, gelb, gruen),
             Mutation::StartHoming { index } => self.start_homing(index),
             Mutation::CancelHoming { index } => self.cancel_homing(index),
+            Mutation::ResetAlarms => self.reset_alarms(),
         }
         Ok(())
     }

@@ -337,7 +337,9 @@ impl MachineApi for Winder2 {
             Mutation::GotoTraverseHome => self.traverse_goto_home(),
             Mutation::SetPullerRegulationMode(regulation) => self.puller_set_regulation(regulation),
             Mutation::SetPullerTargetSpeed(value) => self.puller_set_target_speed(value),
-            Mutation::SetPullerTargetDiameter(_) => todo!(),
+            Mutation::SetPullerTargetDiameter(_) => {
+                tracing::warn!("[Winder2] SetPullerTargetDiameter not yet implemented");
+            }
             Mutation::SetPullerForward(value) => self.puller_set_forward(value),
             Mutation::SetPullerGearRatio(gear_ratio) => self.puller_set_gear_ratio(gear_ratio),
             Mutation::SetSpoolRegulationMode(mode) => self.spool_set_regulation_mode(mode),

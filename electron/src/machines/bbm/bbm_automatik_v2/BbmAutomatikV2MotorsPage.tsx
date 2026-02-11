@@ -65,6 +65,7 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     getAxisSpeedRpm,
     getAxisPositionMm,
     getAxisSoftLimitMax,
+    getAxisAlarmActive,
     isDisabled,
     isLoading,
     MAX_SPEED_MM_S,
@@ -72,6 +73,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     MAX_ACCELERATION_MM_S2,
     MIN_ACCELERATION_MM_S2,
   } = useBbmAutomatikV2();
+
+  const isAlarm = getAxisAlarmActive(axisIndex);
 
   const softLimitMax = getAxisSoftLimitMax(axisIndex);
 
@@ -166,6 +169,12 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
     return (
       <ControlCard title={`${axisName} (Rotation)`}>
         <div className="flex flex-col gap-4">
+          {/* Driver alarm banner */}
+          {isAlarm && (
+            <div className="bg-red-600 text-white text-center font-bold py-2 rounded animate-pulse">
+              TREIBER ALARM
+            </div>
+          )}
           {/* Direction + Speed in row */}
           <div className="grid grid-cols-2 gap-2">
             <Label label="Richtung">
@@ -264,6 +273,12 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
   return (
     <ControlCard title={`${axisName} (Linear)`}>
       <div className="flex flex-col gap-4">
+        {/* Driver alarm banner */}
+        {isAlarm && (
+          <div className="bg-red-600 text-white text-center font-bold py-2 rounded animate-pulse">
+            TREIBER ALARM
+          </div>
+        )}
         {/* Inputs in 2x2 grid for better readability */}
         <div className="grid grid-cols-2 gap-2">
           <Label label="Geschw.">
@@ -440,6 +455,8 @@ function AxisControl({ axisIndex, axisName, isRotation = false }: AxisControlPro
 export function BbmAutomatikV2MotorsPage() {
   const {
     setRuettelmotor,
+    resetAlarms,
+    isAnyAlarmActive,
     state,
     isDisabled,
     isLoading,
@@ -447,9 +464,25 @@ export function BbmAutomatikV2MotorsPage() {
   } = useBbmAutomatikV2();
 
   const ruettelmotorOn = state?.output_states[OUTPUT.RUETTELMOTOR] ?? false;
+  const hasAlarm = isAnyAlarmActive();
 
   return (
     <Page>
+      {/* Global alarm reset banner */}
+      {hasAlarm && (
+        <div className="mb-4 flex items-center justify-between bg-red-600 text-white rounded-lg px-4 py-3">
+          <span className="font-bold text-lg animate-pulse">TREIBER ALARM AKTIV</span>
+          <TouchButton
+            variant="outline"
+            icon="lu:RotateCcw"
+            onClick={() => resetAlarms()}
+            className="bg-white text-red-600 hover:bg-red-100 border-white font-bold"
+          >
+            ALARM RESET
+          </TouchButton>
+        </div>
+      )}
+
       <ControlGrid columns={2}>
         {/* MT (Magazin Transporter) */}
         <AxisControl axisIndex={AXIS.MT} axisName={AXIS_NAMES[AXIS.MT]} />

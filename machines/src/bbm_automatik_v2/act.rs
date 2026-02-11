@@ -12,6 +12,12 @@ impl MachineAct for BbmAutomatikV2 {
             self.act_machine_message(msg);
         }
 
+        // Driver alarm check (highest priority - like Arduino checkDriverAlarms())
+        let alarm_triggered = self.check_driver_alarms();
+        if alarm_triggered {
+            self.emit_state();
+        }
+
         // Hardware monitor: watch hardware status, no timing needed
         let status_changed = self.update_hardware_monitor();
         if status_changed {
@@ -30,17 +36,12 @@ impl MachineAct for BbmAutomatikV2 {
         // Periodic debug log to console (every 1 second when any axis is moving)
         let any_axis_moving = self.axis_speeds.iter().any(|&s| s != 0);
         if any_axis_moving {
-            static mut LAST_DEBUG: Option<Instant> = None;
-            let should_log = unsafe {
-                match LAST_DEBUG {
-                    Some(last) => now.duration_since(last) > DEBUG_LOG_INTERVAL,
-                    None => true,
-                }
+            let should_log = match self.last_debug_log {
+                Some(last) => now.duration_since(last) > DEBUG_LOG_INTERVAL,
+                None => true,
             };
             if should_log {
-                unsafe {
-                    LAST_DEBUG = Some(now);
-                }
+                self.last_debug_log = Some(now);
                 // Log info for moving axes
                 let axis_names = ["MT", "Schieber", "Drücker", "Bürste"];
                 for (i, &speed) in self.axis_speeds.iter().enumerate() {
@@ -74,14 +75,15 @@ impl MachineAct for BbmAutomatikV2 {
                 // Does not connect to other machines; do nothing
             }
             MachineMessage::RequestValues(sender) => {
-                sender
-                    .send_blocking(MachineValues {
-                        state: serde_json::to_value(self.get_state())
-                            .expect("Failed to serialize state"),
-                        live_values: serde_json::to_value(self.get_live_values())
-                            .expect("Failed to serialize live values"),
-                    })
-                    .expect("Failed to send values");
+                let state = serde_json::to_value(self.get_state()).unwrap_or_else(|e| {
+                    tracing::error!("[BbmAutomatikV2] Failed to serialize state: {}", e);
+                    serde_json::Value::Null
+                });
+                let live_values = serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
+                    tracing::error!("[BbmAutomatikV2] Failed to serialize live values: {}", e);
+                    serde_json::Value::Null
+                });
+                let _ = sender.send_blocking(MachineValues { state, live_values });
                 sender.close();
             }
         }

@@ -37,8 +37,10 @@ export const INPUT = {
   REF_MT: 0,
   REF_SCHIEBER: 1,
   REF_DRUECKER: 2,
-  TUER_1: 3,
-  TUER_2: 4,
+  ALARM_MT: 3,
+  ALARM_SCHIEBER: 4,
+  ALARM_DRUECKER: 5,
+  TUER: 6,
 } as const;
 
 // Digital output indices
@@ -405,11 +407,40 @@ function useBbmAutomatik(
     return stateOptimistic.value?.data.axis_soft_limit_max[index] ?? null;
   };
 
+  // ResetAlarms mutation
+  const resetAlarmsSchema = z.object({
+    action: z.literal("ResetAlarms"),
+  });
+  const { request: requestResetAlarms } = useMachineMutation(resetAlarmsSchema);
+
+  const resetAlarms = () => {
+    updateStateOptimistically(
+      (current) => {
+        current.data.axis_alarm_active = [false, false, false, false];
+      },
+      () =>
+        requestResetAlarms({
+          machine_identification_unique,
+          data: { action: "ResetAlarms" },
+        }),
+    );
+  };
+
+  // Helper to get axis alarm state
+  const getAxisAlarmActive = (index: number): boolean => {
+    return stateOptimistic.value?.data.axis_alarm_active[index] ?? false;
+  };
+
+  // Check if any alarm is active
+  const isAnyAlarmActive = (): boolean => {
+    const alarms = stateOptimistic.value?.data.axis_alarm_active;
+    return alarms ? alarms.some((a) => a) : false;
+  };
+
   // Check if doors are closed
   const areDoorsClosedFn = (): boolean => {
     if (!liveValues) return false;
-    return liveValues.data.input_states[INPUT.TUER_1] &&
-           liveValues.data.input_states[INPUT.TUER_2];
+    return liveValues.data.input_states[INPUT.TUER];
   };
 
   return {
@@ -440,6 +471,11 @@ function useBbmAutomatik(
     setRuettelmotor,
     setAmpel,
     areDoorsClosed: areDoorsClosedFn,
+
+    // Alarm functions
+    resetAlarms,
+    getAxisAlarmActive,
+    isAnyAlarmActive,
 
     // Homing functions
     startHoming,

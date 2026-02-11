@@ -41,13 +41,14 @@ export function BbmAutomatikV2StatusPage() {
       "Endlage MT",
       "Endlage Schieber",
       "Endlage Drücker",
-      "Tür 1",
-      "Tür 2",
+      "Alarm MT",
+      "Alarm Schieber",
+      "Alarm Drücker",
+      "Tür",
     ];
 
     // Log door sensor changes
-    const tuer1 = liveValues.input_states[INPUT.TUER_1];
-    const tuer2 = liveValues.input_states[INPUT.TUER_2];
+    const tuer = liveValues.input_states[INPUT.TUER];
 
     // This will be called on every render, so we need to track previous state
     // For now, just show current state in the log on mount
@@ -58,10 +59,10 @@ export function BbmAutomatikV2StatusPage() {
     "Endlage MT",
     "Endlage Schieber",
     "Endlage Drücker",
-    "Tür 1",
-    "Tür 2",
-    "DI 6 (frei)",
-    "DI 7 (frei)",
+    "Alarm MT",
+    "Alarm Schieber",
+    "Alarm Drücker",
+    "Tür",
     "DI 8 (frei)",
   ];
 

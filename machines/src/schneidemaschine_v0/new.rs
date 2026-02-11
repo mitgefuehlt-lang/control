@@ -156,6 +156,7 @@ impl MachineNewTrait for SchneidemaschineV0 {
                 axis_position_ignore_cycles: [0; 2],
                 sdo_write_u16: params.sdo_write_u16.clone(),
                 pto_subdevice_index,
+                last_debug_log: None,
             };
 
             machine.emit_state();

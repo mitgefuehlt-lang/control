@@ -27,17 +27,12 @@ impl MachineAct for SchneidemaschineV0 {
         // Periodic debug log to console (every 1 second when any axis is moving)
         let any_axis_moving = self.axis_speeds.iter().any(|&s| s != 0);
         if any_axis_moving {
-            static mut LAST_DEBUG: Option<Instant> = None;
-            let should_log = unsafe {
-                match LAST_DEBUG {
-                    Some(last) => now.duration_since(last) > DEBUG_LOG_INTERVAL,
-                    None => true,
-                }
+            let should_log = match self.last_debug_log {
+                Some(last) => now.duration_since(last) > DEBUG_LOG_INTERVAL,
+                None => true,
             };
             if should_log {
-                unsafe {
-                    LAST_DEBUG = Some(now);
-                }
+                self.last_debug_log = Some(now);
                 // Log info for the moving axis
                 for (i, &speed) in self.axis_speeds.iter().enumerate() {
                     if speed != 0 {
@@ -79,14 +74,19 @@ impl MachineAct for SchneidemaschineV0 {
                 // Does not connect to other machines; do nothing
             }
             MachineMessage::RequestValues(sender) => {
-                sender
-                    .send_blocking(MachineValues {
-                        state: serde_json::to_value(self.get_state())
-                            .expect("Failed to serialize state"),
-                        live_values: serde_json::to_value(self.get_live_values())
-                            .expect("Failed to serialize live values"),
-                    })
-                    .expect("Failed to send values");
+                let state = serde_json::to_value(self.get_state()).unwrap_or_else(|e| {
+                    tracing::error!("[SchneidemaschineV0] Failed to serialize state: {}", e);
+                    serde_json::Value::Null
+                });
+                let live_values =
+                    serde_json::to_value(self.get_live_values()).unwrap_or_else(|e| {
+                        tracing::error!(
+                            "[SchneidemaschineV0] Failed to serialize live values: {}",
+                            e
+                        );
+                        serde_json::Value::Null
+                    });
+                let _ = sender.send_blocking(MachineValues { state, live_values });
                 sender.close();
             }
         }

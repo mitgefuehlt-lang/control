@@ -17,12 +17,10 @@ impl MachineAct for WagoAiTestMachine {
             crate::MachineMessage::ConnectToMachine(_machine_connection) => {}
             MachineMessage::DisconnectMachine(_machine_connection) => {}
             MachineMessage::RequestValues(sender) => {
-                sender
-                    .send_blocking(MachineValues {
-                        state: serde_json::Value::Null,
-                        live_values: serde_json::Value::Null,
-                    })
-                    .expect("Failed to send values");
+                let _ = sender.send_blocking(MachineValues {
+                    state: serde_json::Value::Null,
+                    live_values: serde_json::Value::Null,
+                });
                 sender.close();
             }
         }

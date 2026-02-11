@@ -33,11 +33,13 @@ pub mod axes {
 
 /// Digital input indices (0-based array index, DI1 = index 0)
 pub mod inputs {
-    pub const REF_MT: usize = 0; // Referenzschalter Transporter (DI1 = index 0)
-    pub const REF_SCHIEBER: usize = 1; // Referenzschalter Schieber (DI2 = index 1)
-    pub const REF_DRUECKER: usize = 2; // Referenzschalter Drücker (DI3 = index 2)
-    pub const TUER_1: usize = 3; // Türsensor 1 (DI4 = index 3)
-    pub const TUER_2: usize = 4; // Türsensor 2 (DI5 = index 4)
+    pub const REF_MT: usize = 0;        // Referenzschalter Transporter (DI1 = index 0)
+    pub const REF_SCHIEBER: usize = 1;  // Referenzschalter Schieber (DI2 = index 1)
+    pub const REF_DRUECKER: usize = 2;  // Referenzschalter Drücker (DI3 = index 2)
+    pub const ALARM_MT: usize = 3;       // CL75t Alarm Transporter (DI4 = index 3)
+    pub const ALARM_SCHIEBER: usize = 4; // CL75t Alarm Schieber (DI5 = index 4)
+    pub const ALARM_DRUECKER: usize = 5; // CL75t Alarm Drücker (DI6 = index 5)
+    pub const TUER: usize = 6;           // Türsensor (DI7 = index 6)
 }
 
 /// Digital output indices
@@ -124,6 +126,9 @@ pub mod mechanics {
     }
 }
 
+/// Alarm polarity: CL75t open-collector = active LOW (false = alarm)
+const ALARM_ACTIVE_LOW: bool = true;
+
 pub struct BbmAutomatikV2 {
     pub api_receiver: Receiver<MachineMessage>,
     pub api_sender: Sender<MachineMessage>,
@@ -161,6 +166,13 @@ pub struct BbmAutomatikV2 {
     // Homing state
     pub axis_homing_phase: [HomingPhase; 4],
     pub axis_homing_retract_target: [i32; 4],
+
+    // Driver alarm state (CL75t alarm pins)
+    /// true = alarm active (axis stopped), per axis
+    pub axis_alarm_active: [bool; 4],
+
+    // Debug logging
+    pub last_debug_log: Option<Instant>,
 }
 
 impl std::fmt::Debug for BbmAutomatikV2 {
@@ -209,6 +221,7 @@ impl BbmAutomatikV2 {
                 soft_limits::max_position_mm(2),
                 soft_limits::max_position_mm(3),
             ],
+            axis_alarm_active: self.axis_alarm_active,
         }
     }
 
@@ -353,6 +366,8 @@ impl BbmAutomatikV2 {
             let falling_ms = rising_ms; // Same as rising to avoid step loss from aggressive braking
 
             // SDO-Write to the correct EL2522
+            // NOTE: SdoWriteU16Fn returns () - errors are handled inside the callback.
+            // If SDO write fails, the hardware keeps the old ramp values.
             if let Some(sdo_write) = &self.sdo_write_u16 {
                 // Which EL2522? Axis 0,1 = EL2522#1, Axis 2,3 = EL2522#2
                 let el2522_idx = if index < 2 { 0 } else { 1 };
@@ -361,10 +376,17 @@ impl BbmAutomatikV2 {
                 // PTO Base Index: Channel 1 = 0x8000, Channel 2 = 0x8010
                 let pto_base = if index % 2 == 0 { 0x8000u16 } else { 0x8010u16 };
 
+                tracing::debug!(
+                    "[BbmAutomatikV2] SDO write axis {}: ramp rising={}ms falling={}ms (accel={:.0} mm/s²)",
+                    index, rising_ms, falling_ms, clamped
+                );
+
                 // Rising ramp (0x14)
                 sdo_write(subdevice_index, pto_base, 0x14, rising_ms);
                 // Falling ramp (0x15)
                 sdo_write(subdevice_index, pto_base, 0x15, falling_ms);
+            } else {
+                tracing::warn!("[BbmAutomatikV2] SDO write not available - acceleration change will not take effect");
             }
             self.emit_state();
         }
@@ -531,16 +553,74 @@ impl BbmAutomatikV2 {
         self.emit_state();
     }
 
-    /// Check if door sensors indicate safe (both closed)
+    /// Check if door sensor indicates safe (closed)
     pub fn are_doors_closed(&self) -> bool {
-        let input1 = self.digital_inputs[inputs::TUER_1]
+        self.digital_inputs[inputs::TUER]
             .get_value()
-            .unwrap_or(false);
-        let input2 = self.digital_inputs[inputs::TUER_2]
-            .get_value()
-            .unwrap_or(false);
-        // Assuming normally closed sensors (true = door closed)
-        input1 && input2
+            .unwrap_or(false)
+    }
+
+    /// Check driver alarm pins and emergency-stop all axes if triggered
+    /// Arduino equivalent: checkDriverAlarms() in BBMx22_Automatik_Code.ino v3.2
+    pub fn check_driver_alarms(&mut self) -> bool {
+        let alarm_inputs = [
+            (axes::MT, inputs::ALARM_MT),
+            (axes::SCHIEBER, inputs::ALARM_SCHIEBER),
+            (axes::DRUECKER, inputs::ALARM_DRUECKER),
+        ];
+
+        for &(axis, input_idx) in &alarm_inputs {
+            let raw = self.digital_inputs[input_idx]
+                .get_value()
+                .unwrap_or(!ALARM_ACTIVE_LOW);
+            let is_alarm = if ALARM_ACTIVE_LOW { !raw } else { raw };
+
+            if is_alarm && !self.axis_alarm_active[axis] {
+                tracing::error!(
+                    "[BbmAutomatikV2] !!! ALARM: Axis {} driver alarm triggered !!!",
+                    axis
+                );
+                self.axis_alarm_active[axis] = true;
+                self.stop_all_axes();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Reset all driver alarm states (only if physical alarm pins are inactive)
+    pub fn reset_alarms(&mut self) {
+        let had_alarm = self.axis_alarm_active.iter().any(|&a| a);
+        if !had_alarm {
+            return;
+        }
+
+        // Check if any physical alarm is still active before resetting
+        let alarm_inputs = [
+            (axes::MT, inputs::ALARM_MT),
+            (axes::SCHIEBER, inputs::ALARM_SCHIEBER),
+            (axes::DRUECKER, inputs::ALARM_DRUECKER),
+        ];
+
+        for &(axis, input_idx) in &alarm_inputs {
+            let raw = self.digital_inputs[input_idx]
+                .get_value()
+                .unwrap_or(!ALARM_ACTIVE_LOW);
+            let still_alarm = if ALARM_ACTIVE_LOW { !raw } else { raw };
+
+            if still_alarm {
+                tracing::warn!(
+                    "[BbmAutomatikV2] Cannot reset alarms - Axis {} alarm still active on hardware",
+                    axis
+                );
+                self.emit_state();
+                return;
+            }
+        }
+
+        self.axis_alarm_active = [false; 4];
+        tracing::info!("[BbmAutomatikV2] All alarms reset");
+        self.emit_state();
     }
 
     /// Check if axis is at home position (reference switch active)

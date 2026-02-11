@@ -75,6 +75,9 @@ pub struct SchneidemaschineV0 {
     // Hardware ramp control
     pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,
     pub pto_subdevice_index: usize,
+
+    // Debug logging
+    pub last_debug_log: Option<Instant>,
 }
 
 impl std::fmt::Debug for SchneidemaschineV0 {
@@ -230,13 +233,21 @@ impl SchneidemaschineV0 {
             let falling_ms = rising_ms; // Same as rising to avoid step loss from aggressive braking
 
             // SDO-Write to EL2522
+            // NOTE: SdoWriteU16Fn returns () - errors are handled inside the callback.
             if let Some(sdo_write) = &self.sdo_write_u16 {
                 let subdevice_index = self.pto_subdevice_index;
                 // PTO Base Index: Channel 1 = 0x8000, Channel 2 = 0x8010
                 let pto_base = if index == 0 { 0x8000u16 } else { 0x8010u16 };
 
+                tracing::debug!(
+                    "[SchneidemaschineV0] SDO write axis {}: ramp rising={}ms falling={}ms (accel={:.0} mm/s²)",
+                    index, rising_ms, falling_ms, clamped
+                );
+
                 sdo_write(subdevice_index, pto_base, 0x14, rising_ms);
                 sdo_write(subdevice_index, pto_base, 0x15, falling_ms);
+            } else {
+                tracing::warn!("[SchneidemaschineV0] SDO write not available - acceleration change will not take effect");
             }
             self.emit_state();
         }

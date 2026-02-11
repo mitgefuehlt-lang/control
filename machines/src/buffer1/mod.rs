@@ -74,11 +74,11 @@ impl BufferV1 {
 
     // To be implemented
     fn fill_buffer(&mut self) {
-        todo!();
+        tracing::warn!("[Buffer1] fill_buffer() not yet implemented");
     }
 
     fn empty_buffer(&mut self) {
-        todo!();
+        tracing::warn!("[Buffer1] empty_buffer() not yet implemented");
     }
 
     // Turn off motor and do nothing

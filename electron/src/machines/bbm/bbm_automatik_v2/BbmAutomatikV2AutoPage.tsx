@@ -28,10 +28,9 @@ export function BbmAutomatikV2AutoPage() {
   const currentBlock = 0;
   const currentCycle = 0;
 
-  // Door sensors
-  const door1Closed = liveValues?.input_states[INPUT.TUER_1] ?? false;
-  const door2Closed = liveValues?.input_states[INPUT.TUER_2] ?? false;
-  const doorsAreSafe = door1Closed && door2Closed;
+  // Door sensor
+  const doorClosed = liveValues?.input_states[INPUT.TUER] ?? false;
+  const doorsAreSafe = doorClosed;
 
   const handleStart = () => {
     if (!doorsAreSafe) {
@@ -122,33 +121,21 @@ export function BbmAutomatikV2AutoPage() {
         {/* Sicherheit & Status */}
         <ControlCard title="Sicherheit & Fortschritt">
           <div className="flex flex-col gap-4">
-            {/* Door sensors */}
+            {/* Door sensor */}
             <div className="space-y-2">
-              <Label label="Türsensoren">
+              <Label label="Türsensor">
                 <div className="flex gap-4">
                   <div
                     className={`flex items-center gap-2 px-3 py-2 rounded ${
-                      door1Closed ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                      doorClosed ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
                     }`}
                   >
                     <div
                       className={`w-3 h-3 rounded-full ${
-                        door1Closed ? "bg-green-500" : "bg-red-500"
+                        doorClosed ? "bg-green-500" : "bg-red-500"
                       }`}
                     />
-                    Tür 1: {door1Closed ? "Geschlossen" : "Offen"}
-                  </div>
-                  <div
-                    className={`flex items-center gap-2 px-3 py-2 rounded ${
-                      door2Closed ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                    }`}
-                  >
-                    <div
-                      className={`w-3 h-3 rounded-full ${
-                        door2Closed ? "bg-green-500" : "bg-red-500"
-                      }`}
-                    />
-                    Tür 2: {door2Closed ? "Geschlossen" : "Offen"}
+                    Tür: {doorClosed ? "Geschlossen" : "Offen"}
                   </div>
                 </div>
               </Label>
@@ -156,7 +143,7 @@ export function BbmAutomatikV2AutoPage() {
 
             {!doorsAreSafe && (
               <div className="bg-red-100 text-red-800 p-3 rounded font-semibold">
-                Türen müssen geschlossen sein bevor Automatik gestartet werden kann!
+                Tür muss geschlossen sein bevor Automatik gestartet werden kann!
               </div>
             )}
 
