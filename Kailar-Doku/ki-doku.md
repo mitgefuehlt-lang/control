@@ -1815,3 +1815,377 @@ Alle Commits dieser Session im Ueberblick:
 | 10 | `6f4fa6ae` | Fix default speed to Langsam, fix sidebar routing to Auto tab | Frontend |
 
 **Schwerpunkte:** Hardware Travel Distance Control Bugfixes (1-4), Deploy-Workflow Fixes (5-7), UI-Verbesserungen (8-10)
+
+---
+
+## Session 2026-02-09 (Nachtrag): Soft Limits
+
+### Soft Limits fuer BBM Automatik V2
+
+~17:00 [Claude Opus 4.6]
+
+Soft Limits aus dem Arduino-Code (v3.2) uebernommen. Verhindert dass Achsen ueber mechanische Grenzen hinausfahren.
+
+**Neues Modul in `machines/src/bbm_automatik_v2/mod.rs`:**
+```rust
+pub mod soft_limits {
+    pub const MIN_MM: f32 = 0.0;
+    pub const MT_MAX_MM: f32 = 230.0;
+    pub const SCHIEBER_MAX_MM: f32 = 53.0;
+    pub const DRUECKER_MAX_MM: f32 = 107.0;
+
+    pub fn max_position_mm(axis: usize) -> Option<f32> {
+        match axis {
+            0 => Some(MT_MAX_MM),
+            1 => Some(SCHIEBER_MAX_MM),
+            2 => Some(DRUECKER_MAX_MM),
+            _ => None, // Buerste hat keine Soft Limits
+        }
+    }
+}
+```
+
+**Enforcement:**
+- In `move_to_position_mm()`: Zielposition wird auf Soft Limits geclampt
+- In `update_hardware_monitor()` (JOG): Speed wird auf 0 gesetzt wenn Limit erreicht
+- Warnung im Log: `[BbmAutomatikV2] Axis X soft limit reached at Y.Y mm - stopping`
+
+**Commit:** `072f2088` - Add soft limits for BBM Automatik V2 axes (from Arduino v3.2)
+
+---
+
+## Session 2026-02-11: Motor-Alarm-Monitoring, kritische Bug-Fixes, CI-Pipeline
+
+### Uebersicht
+
+Umfangreiche Session mit drei Schwerpunkten:
+1. **Motor-Alarm-Monitoring** fuer BBM Automatik V2 (CL75t Treiber-Alarme)
+2. **Kritische Bug-Fixes** in 20+ Dateien (unsafe code, panics, etc.)
+3. **CI-Pipeline** vollstaendig grueen bekommen (Rust + Electron + Nix)
+
+Branch: `feature/motor-alarm-monitoring`
+PR: https://github.com/mitgefuehlt-lang/control/pull/1
+
+### 1. Motor-Alarm-Monitoring (Plan implementiert)
+
+~09:00 [Claude Opus 4.6]
+
+**Hintergrund:** Die BBM Automatik V2 nutzt CL75t Schrittmotor-Treiber. Diese haben einen Alarm-Pin (AL) der bei Ueberstrom, Ueberhitzung etc. ausloest. Im Arduino-Code (`BBMx22_Automatik_Code.ino` v3.2, Zeile 717-738) wurde `checkDriverAlarms()` jeden Zyklus aufgerufen - bei Alarm sofort `emergencyStopAll()`.
+
+**Neue DI-Belegung (EL1008):**
+
+| DI | Index | Funktion | Vorher |
+|----|-------|----------|--------|
+| DI1 | 0 | REF_MT | unveraendert |
+| DI2 | 1 | REF_SCHIEBER | unveraendert |
+| DI3 | 2 | REF_DRUECKER | unveraendert |
+| DI4 | 3 | ALARM_MT | war TUER_1 |
+| DI5 | 4 | ALARM_SCHIEBER | war TUER_2 |
+| DI6 | 5 | ALARM_DRUECKER | neu |
+| DI7 | 6 | TUER (eine Tuer) | neu |
+| DI8 | 7 | frei | unveraendert |
+
+**Alarm-Polaritaet:** Active LOW (Open-Collector, `false` = Alarm) - wie Arduino `ALARM_ACTIVE_HIGH = false`.
+
+#### 1.1 Backend-Aenderungen
+
+**`machines/src/bbm_automatik_v2/mod.rs`:**
+- `inputs` Modul aktualisiert: `TUER_1`/`TUER_2` entfernt, `ALARM_MT`/`ALARM_SCHIEBER`/`ALARM_DRUECKER`/`TUER` hinzugefuegt
+- `ALARM_ACTIVE_LOW: bool = true` Konstante
+- `axis_alarm_active: [bool; 4]` Feld im Struct
+- `check_driver_alarms()` - prueft Alarm-Pins, stoppt alle Achsen bei Alarm
+- `reset_alarms()` - mit Hardware-Pin-Validierung (prueft ob physischer Alarm noch aktiv)
+- `are_doors_closed()` auf einen Sensor umgestellt
+
+**`machines/src/bbm_automatik_v2/act.rs`:**
+- `check_driver_alarms()` wird VOR `update_hardware_monitor()` aufgerufen (hoechste Prioritaet)
+
+**`machines/src/bbm_automatik_v2/api.rs`:**
+- `axis_alarm_active: [bool; 4]` in `StateEvent`
+- `ResetAlarms` Mutation hinzugefuegt
+
+**`machines/src/bbm_automatik_v2/new.rs`:**
+- `axis_alarm_active: [false; 4]` initialisiert
+
+#### 1.2 Frontend-Aenderungen
+
+**`electron/src/machines/bbm/bbm_automatik_v2/bbmAutomatikV2Namespace.ts`:**
+- `axis_alarm_active: z.tuple([z.boolean(), z.boolean(), z.boolean(), z.boolean()])` zum Schema
+
+**`electron/src/machines/bbm/bbm_automatik_v2/useBbmAutomatikV2.ts`:**
+- `INPUT` Konstanten aktualisiert (ALARM_MT/SCHIEBER/DRUECKER + TUER)
+- `resetAlarms` Mutation, `getAxisAlarmActive`, `isAnyAlarmActive` Helper
+- `areDoorsClosedFn` auf einen Sensor
+
+**`electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2MotorsPage.tsx`:**
+- Pro Achse: rotes "TREIBER ALARM" Banner wenn `axis_alarm_active[i]`
+- Global: "ALARM RESET" Button sichtbar wenn irgendein Alarm aktiv
+
+**`electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2AutoPage.tsx`:**
+- Von 2-Tuer auf 1-Tuer Anzeige umgestellt
+
+**`electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2StatusPage.tsx`:**
+- Input-Namen aktualisiert (Alarm-Pins statt Tuersensoren)
+
+### 2. Kritische Bug-Fixes (learnings1.md Analyse)
+
+~09:30 [Claude Opus 4.6]
+
+Ein Agent-Swarm analysierte die gesamte Codebase und fand 7 kritische Bug-Kategorien. Alle wurden behoben.
+
+#### 2.1 Unsafe Static Mut (KRITISCH)
+
+**Problem:** `unsafe static mut LAST_DEBUG: Option<Instant>` in `act.rs` - undefined behavior in Rust, Thread-Safety-Verletzung.
+
+**Auswirkung:** Mehrere Maschinen-Instanzen teilen sich denselben statischen Speicher. Bei gleichzeitigem Zugriff: Data Race, potentieller Crash oder korrupte Daten.
+
+**Fix:** In Struct-Feld `last_debug_log: Option<Instant>` verschoben.
+
+**Dateien:**
+- `machines/src/bbm_automatik_v2/act.rs` + `mod.rs` + `new.rs`
+- `machines/src/schneidemaschine_v0/act.rs` + `mod.rs` + `new.rs`
+
+#### 2.2 expect() Panics (KRITISCH)
+
+**Problem:** `expect()` in `RequestValues` Handler aller 16 Maschinen-`act.rs` Dateien. Ein Serialisierungs-Fehler haette den gesamten Maschinen-Thread gekillt.
+
+**Auswirkung:** Thread-Tod = Maschine reagiert nicht mehr, alle Achsen laufen mit letztem Befehl weiter.
+
+**Fix:** `unwrap_or_else(|e| { tracing::error!(...); serde_json::Value::Null })` - loggt Fehler, gibt Null zurueck.
+
+**Betroffene Dateien (16 Stueck):**
+- `bbm_automatik_v2/act.rs`, `schneidemaschine_v0/act.rs`, `lib.rs`
+- `winder2/act.rs`, `winder2/mock/act.rs`
+- `extruder1/act.rs`, `extruder1/mock/act.rs`
+- `extruder2/act.rs`, `extruder2/mock/act.rs`
+- `laser/act.rs`, `buffer1/act.rs`, `aquapath1/act.rs`
+- `wago_power/act.rs`, `test_machine/act.rs`
+- `analog_input_test_machine/act.rs`, `ip20_test_machine/act.rs`
+
+#### 2.3 todo!() Panics (HOCH)
+
+**Problem:** `todo!()` Makros = sofortiger Panic wenn der Code-Pfad erreicht wird.
+
+**Auswirkung:** Thread-Tod bei bestimmten Messages.
+
+**Fix:** Durch `tracing::warn!()` + No-Op ersetzt.
+
+**Dateien:**
+- `machines/src/laser/act.rs` - `None => todo!()` bei fehlender Seriennummer
+- `machines/src/buffer1/mod.rs` - `fill_buffer()` und `empty_buffer()`
+- `machines/src/winder2/api.rs` - `SetPullerTargetDiameter`
+- `machines/src/winder2/mock/api.rs` - gleich
+- `machines/src/lib.rs` - `ConnectToMachine`/`DisconnectMachine`
+
+#### 2.4 Alarm-Reset ohne Hardware-Validierung (MITTEL)
+
+**Problem:** `reset_alarms()` setzte `axis_alarm_active` auf `false` ohne zu pruefen ob der physische Alarm-Pin noch aktiv ist.
+
+**Fix:** Prueft jetzt die physischen Alarm-Pins bevor Reset erlaubt wird:
+```rust
+pub fn reset_alarms(&mut self) {
+    for &(axis, input_idx) in &alarm_inputs {
+        let raw = self.digital_inputs[input_idx].get_value().unwrap_or(!ALARM_ACTIVE_LOW);
+        let still_alarm = if ALARM_ACTIVE_LOW { !raw } else { raw };
+        if still_alarm {
+            tracing::warn!("[BbmAutomatikV2] Cannot reset axis {} - alarm still active", axis);
+            continue;
+        }
+        self.axis_alarm_active[axis] = false;
+    }
+}
+```
+
+#### 2.5 SDO-Write Debug-Logging (NIEDRIG)
+
+**Problem:** `SdoWriteU16Fn` gibt `()` zurueck, Fehler werden verschluckt.
+
+**Fix:** Debug-Logging vor jedem SDO-Write + Warnung wenn kein Writer verfuegbar.
+
+**Dateien:** `bbm_automatik_v2/mod.rs`, `schneidemaschine_v0/mod.rs`
+
+#### 2.6 Laser Emission Rate Kommentar (NIEDRIG)
+
+**Problem:** Kommentar sagte "60 FPS" aber Code emittiert bei 30 Hz.
+
+**Fix:** Kommentar auf "~30 Hz" korrigiert.
+
+**Datei:** `machines/src/laser/act.rs`
+
+### 3. CI-Pipeline - Alle Workflows gruen
+
+#### 3.1 React Import Fix (Electron CI - TypeScript)
+
+**Problem:** `tsconfig.json` nutzt `"jsx": "react"` was expliziten `import React from "react"` erfordert.
+
+**Betroffene Dateien (8 Stueck):**
+
+SchneidemaschineV0 (3 Dateien):
+- `SchneidemaschineV0Page.tsx`
+- `SchneidemaschineV0MotorsPage.tsx`
+- `SchneidemaschineV0ControlPage.tsx`
+
+BBM Automatik V2 (5 Dateien):
+- `BbmAutomatikV2Page.tsx`
+- `BbmAutomatikV2MotorsPage.tsx`
+- `BbmAutomatikV2StatusPage.tsx`
+- `BbmAutomatikV2TestPage.tsx`
+- `BbmAutomatikV2AutoPage.tsx`
+
+**Commits:**
+- `d3765d48` - Fix missing React import in SchneidemaschineV0 TSX files
+- `91a4c590` - Fix missing React import in BBM Automatik V2 TSX files
+
+#### 3.2 Rustfmt Fix (Rust CI - cargo fmt)
+
+**Problem:** CI nutzt `rustfmt --edition 2024` mit strengeren Regeln als der lokale Linter:
+- `unwrap_or_else` Bloecke: `let state = serde_json::to_value(...)` darf auf eine Zeile wenn kurz genug, muss umbrechen wenn zu lang
+- `tracing::` Makro-Argumente: jedes Argument auf eigene Zeile
+- Kommentar-Alignment: keine Extra-Spaces vor Inline-Kommentaren
+
+**Betroffene Dateien (6 Stueck):**
+- `bbm_automatik_v2/act.rs`, `bbm_automatik_v2/mod.rs`
+- `extruder1/mock/act.rs`, `extruder2/act.rs`, `extruder2/mock/act.rs`
+- `winder2/act.rs`, `winder2/mock/act.rs`
+- `ip20_test_machine/act.rs`
+- `lib.rs`
+- `schneidemaschine_v0/mod.rs`
+
+**Commits:**
+- `b7940cee` - Fix rustfmt formatting in act.rs files and mod.rs
+- `5c27e1c2` - Fix rustfmt edition 2024 formatting across all modified files
+
+#### 3.3 Prettier Fix (Electron CI - Code Style)
+
+**Problem:** `prettier --check .` fand Formatting-Issues in 11 Dateien.
+
+**Fix:** `npx prettier --write` auf alle 11 Dateien ausgefuehrt.
+
+**Commit:** `84061853` - Fix Prettier formatting in all modified frontend files
+
+#### 3.4 Finaler CI-Status
+
+| Workflow | Status | Dauer |
+|----------|--------|-------|
+| Rust (fmt + build + test + mock) | PASSED | ~1m50s |
+| Electron (format + compile + lint + test) | PASSED | ~1m30s |
+| Nix CI (build + flake check) | PASSED | ~4m48s |
+
+**Lint-Warnings (nicht blockierend, pre-existing):**
+- `addLogEntry` unused in BbmAutomatikV2StatusPage.tsx
+- `areDoorsClosed` unused in BbmAutomatikV2AutoPage.tsx
+- Diverse andere unused variables in bestehenden Dateien
+
+### 4. PR #1 erstellt
+
+**URL:** https://github.com/mitgefuehlt-lang/control/pull/1
+**Branch:** `feature/motor-alarm-monitoring` -> `master`
+**Alle Checks:** Gruen
+
+### 5. Codebase-Analyse (4 Agents)
+
+Vier parallel laufende Analyse-Agents untersuchten die gesamte Codebase. Ergebnisse als Referenz fuer zukuenftige Implementierungen:
+
+#### 5.1 UI Features (Agent ae63323)
+
+**Fehlende UI-Features (Prioritaet):**
+- Kein Machine Overview Dashboard (alle Maschinen auf einen Blick)
+- Keine Breadcrumbs-Navigation
+- Keine Tooltips/Inline-Hilfe
+- BBM Automatik V2 hat keine Graphen (Winder/Extruder haben welche)
+- Kein responsives Layout fuer Tablets (feste Spaltenbreite)
+- Keine Custom Dashboards
+- Kein PDF-Export (nur XLSX)
+- Keine Parametervergleichs-UI (vorher/nachher)
+
+#### 5.2 Machine Features (Agent a4f9c91)
+
+**Fehlende Backend-Features (Prioritaet):**
+- Zyklusautomatik (19-Zyklen Sequenz) nur als UI-Stub
+- Keine State Persistence (Zustand geht bei Neustart verloren)
+- Kein Data Logging / Produktionszaehler
+- Keine Kalibrierung / Wartungstracking
+- Keine Fehlercodes (nur generische Alarm-Flags)
+- Wobble-Funktion fuer Schieber nicht implementiert
+- Keine Rezept-/Programmverwaltung
+
+#### 5.3 Safety & Monitoring (Agent a14f83c)
+
+**Kritische Sicherheitsluecken:**
+
+| Bereich | Status | Risiko |
+|---------|--------|--------|
+| EtherCAT Watchdog | Deaktiviert (fuer TDC benoetigt) | KRITISCH |
+| EtherCAT Link-Loss Detection | Nicht implementiert | KRITISCH |
+| Globaler E-Stop | Fehlt (nur per-Maschine) | HOCH |
+| Tuer-Interlock Enforcement | Nur angezeigt, nicht erzwungen | MITTEL |
+| Kollisionserkennung zwischen Achsen | Nicht implementiert | MITTEL |
+| Motor-Gesundheit (Strom, Temperatur) | Nur Alarm-Pin | MITTEL |
+| Alarm-Historie | Nicht persistent | MITTEL |
+
+**Was funktioniert:**
+- Loop Jitter Messung
+- Driver Alarm Detection (BBM nur)
+- Soft Limit Enforcement
+- Position Feedback via PTO Counter
+- Homing State Machine
+- System Resource Metrics (REST API)
+
+#### 5.4 Display & Data (Agent aaaf795)
+
+**Visualisierung:**
+- uPlot (v1.6.32) aktiv fuer Graphen (Winder, Extruder, Aquapath, Laser)
+- SVG-basierte 2D-Visualisierungen (Spool, TensionArm, TraverseBar)
+- Keine 3D-Modelle, keine interaktiven Maschinendiagramme
+
+**Daten-Features:**
+- Excel-Export vorhanden (xlsx Library)
+- Kein CSV/PDF-Export
+- Preset-System vorhanden (JSON Import/Export)
+- Keine Produktions-Reports, keine Schicht-/Tagesberichte
+
+**Responsive Design:**
+- Touch-optimierte Button-Groessen (>44px)
+- Keine Tailwind Breakpoints (md:/lg:/xl:)
+- Feste Sidebar-Breite (192px), kein Hamburger-Menu
+
+### 6. learnings1.md erstellt
+
+**Datei:** `Kailar-Doku/learnings1.md`
+**Inhalt:** Vollstaendige Deep-Analysis der Codebase mit konkreten Bugs, Schwachstellen und Verbesserungsvorschlaegen. Kategorien: Kritische Bugs, Sicherheitsluecken, fehlende Features, Architektur-Empfehlungen.
+
+### Commits (2026-02-11)
+
+| # | Commit | Beschreibung | Bereich |
+|---|--------|-------------|---------|
+| 1 | `c547dd8a` | Add motor alarm monitoring, fix critical bugs across all machines | Backend+Frontend |
+| 2 | `d3765d48` | Fix missing React import in SchneidemaschineV0 TSX files | Frontend |
+| 3 | `b7940cee` | Fix rustfmt formatting in act.rs files and mod.rs | Backend |
+| 4 | `91a4c590` | Fix missing React import in BBM Automatik V2 TSX files | Frontend |
+| 5 | `5c27e1c2` | Fix rustfmt edition 2024 formatting across all modified files | Backend |
+| 6 | `84061853` | Fix Prettier formatting in all modified frontend files | Frontend |
+
+### Wichtige Erkenntnisse
+
+1. **CI-Workflows muessen manuell gestartet werden:** `gh workflow run <name> --ref <branch>` - sie laufen nicht automatisch bei Push
+2. **Nix CI laeuft immer gruen** - muss nicht jedes Mal gestartet werden
+3. **rustfmt --edition 2024** hat strengere Regeln als lokaler Linter:
+   - `tracing::` Makro-Argumente: jedes auf eigene Zeile wenn Format-String lang
+   - `unwrap_or_else` Closure: Einrueckung abhaengig von Zeilenlaenge
+   - Keine Extra-Spaces fuer Kommentar-Alignment
+4. **`import React from "react"`** muss in allen TSX-Dateien stehen wegen `tsconfig.json` `"jsx": "react"`
+5. **Prettier** muss vor dem Commit auf allen geaenderten Frontend-Dateien laufen
+6. **Alarm-Polaritaet CL75t:** Active LOW (Open-Collector) - `false` auf DI = Alarm aktiv
+
+### Naechste Schritte
+
+Basierend auf den Analyse-Ergebnissen, priorisiert:
+
+1. [ ] PR #1 mergen (alle Checks gruen)
+2. [ ] Zyklusautomatik implementieren (19-Zyklen Sequenz - Kern-Feature)
+3. [ ] Tuer-Interlock enforcen (Motor-Stop wenn Tuer offen)
+4. [ ] EtherCAT Link-Loss Detection
+5. [ ] BBM Graphen-Seite erstellen
+6. [ ] Produktionszaehler (Zyklen, Sets)
+7. [ ] Alarm-Historie persistent machen
+8. [ ] Machine Overview Dashboard
