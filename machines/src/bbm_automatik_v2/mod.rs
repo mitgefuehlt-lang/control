@@ -199,8 +199,8 @@ pub mod mechanics {
     }
 }
 
-/// Alarm polarity: CL75t open-collector = active LOW (false = alarm)
-const ALARM_ACTIVE_LOW: bool = true;
+/// Alarm polarity: CL75t without pull-ups = active HIGH (true = alarm, false/0V = no alarm)
+const ALARM_ACTIVE_LOW: bool = false;
 
 pub struct BbmAutomatikV2 {
     pub api_receiver: Receiver<MachineMessage>,
