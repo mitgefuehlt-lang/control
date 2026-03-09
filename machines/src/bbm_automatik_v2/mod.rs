@@ -674,6 +674,8 @@ impl BbmAutomatikV2 {
             (axes::DRUECKER, inputs::ALARM_DRUECKER),
         ];
 
+        let mut any_new_alarm = false;
+
         for &(axis, input_idx) in &alarm_inputs {
             let raw = self.digital_inputs[input_idx]
                 .get_value()
@@ -686,11 +688,14 @@ impl BbmAutomatikV2 {
                     axis
                 );
                 self.axis_alarm_active[axis] = true;
-                self.stop_all_axes();
-                return true;
+                any_new_alarm = true;
             }
         }
-        false
+
+        if any_new_alarm {
+            self.stop_all_axes();
+        }
+        any_new_alarm
     }
 
     /// Reset all driver alarm states (only if physical alarm pins are inactive)
