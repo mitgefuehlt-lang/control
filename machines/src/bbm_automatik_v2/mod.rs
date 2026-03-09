@@ -17,7 +17,7 @@ use crate::bbm_automatik_v2::api::BbmAutomatikV2Namespace;
 /// Device Roles for BbmAutomatikV2
 /// Hardware: 2x EL2522 (4 Achsen), EL1008, EL2008
 pub mod roles {
-    pub const DIGITAL_INPUT: u16 = 1; // EL1008 - 8x DI (3x Referenzschalter, 2x Türsensoren)
+    pub const DIGITAL_INPUT: u16 = 1; // EL1008 - 8x DI (3x Alarm, 3x Referenzschalter NC, 1x Türsensor)
     pub const DIGITAL_OUTPUT: u16 = 2; // EL2008 - 8x DO (1x Rüttelmotor, 3x Ampel)
     pub const PTO_1: u16 = 3; // EL2522 #1 - Kanal 1: MT, Kanal 2: Schieber
     pub const PTO_2: u16 = 4; // EL2522 #2 - Kanal 1: Drücker, Kanal 2: Bürste
@@ -33,12 +33,12 @@ pub mod axes {
 
 /// Digital input indices (0-based array index, DI1 = index 0)
 pub mod inputs {
-    pub const REF_MT: usize = 0; // Referenzschalter Transporter (DI1 = index 0)
-    pub const REF_SCHIEBER: usize = 1; // Referenzschalter Schieber (DI2 = index 1)
-    pub const REF_DRUECKER: usize = 2; // Referenzschalter Drücker (DI3 = index 2)
-    pub const ALARM_MT: usize = 3; // CL75t Alarm Transporter (DI4 = index 3)
-    pub const ALARM_SCHIEBER: usize = 4; // CL75t Alarm Schieber (DI5 = index 4)
-    pub const ALARM_DRUECKER: usize = 5; // CL75t Alarm Drücker (DI6 = index 5)
+    pub const ALARM_MT: usize = 0; // CL75t Alarm Transporter (DI1 = index 0)
+    pub const ALARM_SCHIEBER: usize = 1; // CL75t Alarm Schieber (DI2 = index 1)
+    pub const ALARM_DRUECKER: usize = 2; // CL75t Alarm Drücker (DI3 = index 2)
+    pub const REF_MT: usize = 3; // Referenzschalter Transporter (DI4 = index 3, NC: true=frei, false=Endlage)
+    pub const REF_SCHIEBER: usize = 4; // Referenzschalter Schieber (DI5 = index 4, NC: true=frei, false=Endlage)
+    pub const REF_DRUECKER: usize = 5; // Referenzschalter Drücker (DI6 = index 5, NC: true=frei, false=Endlage)
     pub const TUER: usize = 6; // Türsensor (DI7 = index 6)
 }
 
@@ -728,18 +728,20 @@ impl BbmAutomatikV2 {
         self.emit_state();
     }
 
-    /// Check if axis is at home position (reference switch active)
+    /// Check if axis is at home position (reference switch triggered)
+    /// Ref switches are NC (normally closed): 24V/true = free, 0V/false = end position reached
+    /// So sensor is triggered (at home) when value is false (signal interrupted)
     pub fn is_axis_homed(&self, axis: usize) -> bool {
         match axis {
-            axes::MT => self.digital_inputs[inputs::REF_MT]
+            axes::MT => !self.digital_inputs[inputs::REF_MT]
                 .get_value()
-                .unwrap_or(false),
-            axes::SCHIEBER => self.digital_inputs[inputs::REF_SCHIEBER]
+                .unwrap_or(true),
+            axes::SCHIEBER => !self.digital_inputs[inputs::REF_SCHIEBER]
                 .get_value()
-                .unwrap_or(false),
-            axes::DRUECKER => self.digital_inputs[inputs::REF_DRUECKER]
+                .unwrap_or(true),
+            axes::DRUECKER => !self.digital_inputs[inputs::REF_DRUECKER]
                 .get_value()
-                .unwrap_or(false),
+                .unwrap_or(true),
             _ => false, // Bürste has no home switch
         }
     }
