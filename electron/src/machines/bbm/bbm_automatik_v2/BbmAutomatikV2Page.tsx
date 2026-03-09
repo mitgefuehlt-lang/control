@@ -28,6 +28,12 @@ export function BbmAutomatikV2Page() {
           icon: "lu:Cog",
         },
         {
+          link: "actuators",
+          activeLink: "actuators",
+          title: "Aktoren",
+          icon: "lu:Zap",
+        },
+        {
           link: "status",
           activeLink: "status",
           title: "Status",

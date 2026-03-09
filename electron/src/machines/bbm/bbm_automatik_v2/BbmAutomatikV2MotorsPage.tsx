@@ -461,17 +461,14 @@ function AxisControl({
 
 export function BbmAutomatikV2MotorsPage() {
   const {
-    setRuettelmotor,
     resetAlarms,
     isAnyAlarmActive,
     isDoorInterlockActive,
     state,
     isDisabled,
     isLoading,
-    OUTPUT,
   } = useBbmAutomatikV2();
 
-  const ruettelmotorOn = state?.output_states[OUTPUT.RUETTELMOTOR] ?? false;
   const hasAlarm = isAnyAlarmActive();
   const doorInterlock = isDoorInterlockActive();
 
@@ -524,27 +521,6 @@ export function BbmAutomatikV2MotorsPage() {
           isRotation
         />
 
-        {/* Rüttelmotor */}
-        <ControlCard title="Rüttelmotor">
-          <div className="flex flex-col gap-4">
-            <TouchButton
-              variant={ruettelmotorOn ? "destructive" : "default"}
-              icon={ruettelmotorOn ? "lu:Square" : "lu:Play"}
-              onClick={() => setRuettelmotor(!ruettelmotorOn)}
-              disabled={isDisabled}
-              isLoading={isLoading}
-              className={`h-14 text-lg ${ruettelmotorOn ? "" : "bg-green-600 hover:bg-green-700"}`}
-            >
-              {ruettelmotorOn ? "AUS" : "AN"}
-            </TouchButton>
-
-            {ruettelmotorOn && (
-              <div className="animate-pulse text-center font-semibold text-green-600">
-                Rüttelmotor aktiv
-              </div>
-            )}
-          </div>
-        </ControlCard>
       </ControlGrid>
     </Page>
   );

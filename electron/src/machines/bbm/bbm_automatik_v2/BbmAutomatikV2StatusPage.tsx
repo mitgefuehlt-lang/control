@@ -170,11 +170,11 @@ export function BbmAutomatikV2StatusPage() {
         <ControlCard title="Digitale Ausgänge" className="col-span-2">
           <div className="grid grid-cols-4 gap-2">
             {[
-              "Rüttelmotor",
               "Ampel Rot",
               "Ampel Gelb",
               "Ampel Grün",
-              "DO 5 (frei)",
+              "Pneumatik",
+              "Rüttelmotor",
               "DO 6 (frei)",
               "DO 7 (frei)",
               "DO 8 (frei)",

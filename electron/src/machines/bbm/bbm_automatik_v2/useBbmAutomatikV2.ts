@@ -50,10 +50,11 @@ export const INPUT = {
 
 // Digital output indices
 export const OUTPUT = {
-  RUETTELMOTOR: 0,
-  AMPEL_ROT: 1,
-  AMPEL_GELB: 2,
-  AMPEL_GRUEN: 3,
+  AMPEL_ROT: 0,
+  AMPEL_GELB: 1,
+  AMPEL_GRUEN: 2,
+  PNEUMATIK: 3,
+  RUETTELMOTOR: 4,
 } as const;
 
 function useBbmAutomatik(
@@ -323,6 +324,29 @@ function useBbmAutomatik(
     );
   };
 
+  // SetPneumatik mutation
+  const setPneumatikSchema = z.object({
+    action: z.literal("SetPneumatik"),
+    value: z.object({
+      on: z.boolean(),
+    }),
+  });
+  const { request: requestSetPneumatik } =
+    useMachineMutation(setPneumatikSchema);
+
+  const setPneumatik = (on: boolean) => {
+    updateStateOptimistically(
+      (current) => {
+        current.data.output_states[OUTPUT.PNEUMATIK] = on;
+      },
+      () =>
+        requestSetPneumatik({
+          machine_identification_unique,
+          data: { action: "SetPneumatik", value: { on } },
+        }),
+    );
+  };
+
   // SetAmpel mutation
   const setAmpelSchema = z.object({
     action: z.literal("SetAmpel"),
@@ -536,6 +560,7 @@ function useBbmAutomatik(
 
     // Convenience functions
     setRuettelmotor,
+    setPneumatik,
     setAmpel,
     areDoorsClosed: areDoorsClosedFn,
 

@@ -83,6 +83,8 @@ pub enum Mutation {
     StopAllAxes,
     /// Set Rüttelmotor on/off
     SetRuettelmotor { on: bool },
+    /// Set Pneumatik valve on/off
+    SetPneumatik { on: bool },
     /// Set Ampel (traffic light) state
     SetAmpel { rot: bool, gelb: bool, gruen: bool },
     /// Start homing sequence for an axis
@@ -151,6 +153,7 @@ impl MachineApi for BbmAutomatikV2 {
             Mutation::StopAxis { index } => self.stop_axis(index),
             Mutation::StopAllAxes => self.stop_all_axes(),
             Mutation::SetRuettelmotor { on } => self.set_ruettelmotor(on),
+            Mutation::SetPneumatik { on } => self.set_pneumatik(on),
             Mutation::SetAmpel { rot, gelb, gruen } => self.set_ampel(rot, gelb, gruen),
             Mutation::StartHoming { index } => self.start_homing(index),
             Mutation::CancelHoming { index } => self.cancel_homing(index),

@@ -44,10 +44,11 @@ pub mod inputs {
 
 /// Digital output indices
 pub mod outputs {
-    pub const RUETTELMOTOR: usize = 0; // Rüttelmotor
-    pub const AMPEL_ROT: usize = 1; // Ampel Rot
-    pub const AMPEL_GELB: usize = 2; // Ampel Gelb
-    pub const AMPEL_GRUEN: usize = 3; // Ampel Grün
+    pub const AMPEL_ROT: usize = 0; // Ampel Rot (DO1 = index 0)
+    pub const AMPEL_GELB: usize = 1; // Ampel Gelb (DO2 = index 1)
+    pub const AMPEL_GRUEN: usize = 2; // Ampel Grün (DO3 = index 2)
+    pub const PNEUMATIK: usize = 3; // Pneumatik 3/2-Ventil (DO4 = index 3)
+    pub const RUETTELMOTOR: usize = 4; // Rüttelmotor (DO5 = index 4)
 }
 
 /// Soft limits per axis in mm (0 = home position after homing)
@@ -645,6 +646,11 @@ impl BbmAutomatikV2 {
     /// Set Rüttelmotor on/off
     pub fn set_ruettelmotor(&mut self, on: bool) {
         self.set_output(outputs::RUETTELMOTOR, on);
+    }
+
+    /// Set Pneumatik valve on/off
+    pub fn set_pneumatik(&mut self, on: bool) {
+        self.set_output(outputs::PNEUMATIK, on);
     }
 
     /// Set Ampel state

@@ -79,6 +79,7 @@ import { BbmAutomatikV2MotorsPage } from "@/machines/bbm/bbm_automatik_v2/BbmAut
 import { BbmAutomatikV2TestPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2TestPage";
 import { BbmAutomatikV2AutoPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2AutoPage";
 import { BbmAutomatikV2StatusPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2StatusPage";
+import { BbmAutomatikV2ActuatorsPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2ActuatorsPage";
 
 // make a route tree like this
 // _mainNavigation/machines/winder2/$serial/control
@@ -406,6 +407,12 @@ export const bbmAutomatikV2AutoRoute = createRoute({
   component: () => <BbmAutomatikV2AutoPage />,
 });
 
+export const bbmAutomatikV2ActuatorsRoute = createRoute({
+  getParentRoute: () => bbmAutomatikV2SerialRoute,
+  path: "actuators",
+  component: () => <BbmAutomatikV2ActuatorsPage />,
+});
+
 export const bbmAutomatikV2StatusRoute = createRoute({
   getParentRoute: () => bbmAutomatikV2SerialRoute,
   path: "status",
@@ -571,6 +578,7 @@ export const rootTree = RootRoute.addChildren([
 
       bbmAutomatikV2SerialRoute.addChildren([
         bbmAutomatikV2MotorsRoute,
+        bbmAutomatikV2ActuatorsRoute,
         bbmAutomatikV2TestRoute,
         bbmAutomatikV2AutoRoute,
         bbmAutomatikV2StatusRoute,
