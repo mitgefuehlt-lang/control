@@ -39,12 +39,12 @@ export const AXIS_NAMES = [
 
 // Digital input indices
 export const INPUT = {
-  REF_MT: 0,
-  REF_SCHIEBER: 1,
-  REF_DRUECKER: 2,
-  ALARM_MT: 3,
-  ALARM_SCHIEBER: 4,
-  ALARM_DRUECKER: 5,
+  ALARM_MT: 0,
+  ALARM_SCHIEBER: 1,
+  ALARM_DRUECKER: 2,
+  REF_MT: 3,
+  REF_SCHIEBER: 4,
+  REF_DRUECKER: 5,
   TUER: 6,
 } as const;
 

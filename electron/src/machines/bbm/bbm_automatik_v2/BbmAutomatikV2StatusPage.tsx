@@ -52,12 +52,12 @@ export function BbmAutomatikV2StatusPage() {
 
   // Sensor names
   const inputNames = [
-    "Endlage MT",
-    "Endlage Schieber",
-    "Endlage Drücker",
     "Alarm MT",
     "Alarm Schieber",
     "Alarm Drücker",
+    "Endlage MT",
+    "Endlage Schieber",
+    "Endlage Drücker",
     "Tür",
     "DI 8 (frei)",
   ];
