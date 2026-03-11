@@ -48,12 +48,24 @@ jobs:
              git fetch origin; \
              git checkout \"$BRANCH\"; \
              git reset --hard \"origin/$BRANCH\"; \
-             sudo nixos-rebuild switch --flake .#nixos --impure --show-trace; \
-             pkill -f qitech-control-electron || true; \
-             sleep 2; \
-             sudo systemctl restart qitech-control-server; \
-             sleep 5; \
-             systemctl is-active sshd; \
-             systemctl is-active qitech-control-server; \
-             systemctl is-active dnsmasq; \
-             echo 'Deploy complete, Electron UI restarted'"
+             sudo nixos-rebuild boot --flake .#nixos --impure --show-trace; \
+             echo 'Build complete, rebooting...'; \
+             sudo reboot" || true
+
+          echo "Waiting 60s for reboot..."
+          sleep 60
+
+          # Verify services after reboot
+          for i in 1 2 3 4 5; do
+            if ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+              "systemctl is-active sshd && \
+               systemctl is-active qitech-control-server && \
+               systemctl is-active dnsmasq && \
+               echo 'Deploy complete, all services running'"; then
+              exit 0
+            fi
+            echo "Attempt $i failed, waiting 15s..."
+            sleep 15
+          done
+          echo "::error::Services not healthy after reboot"
+          exit 1
