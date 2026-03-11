@@ -62,7 +62,7 @@ jobs:
         run: |
           SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=10"
           ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "pkill -x qitech-control-e || true; \
+            "pkill -f qitech-control-electron || true; \
              sleep 2; \
              sudo systemctl restart qitech-control-server; \
              sleep 5; \
