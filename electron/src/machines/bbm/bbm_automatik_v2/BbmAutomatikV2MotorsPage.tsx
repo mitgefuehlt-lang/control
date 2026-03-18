@@ -464,9 +464,11 @@ export function BbmAutomatikV2MotorsPage() {
     resetAlarms,
     isAnyAlarmActive,
     isDoorInterlockActive,
+    setBuerstenmotor,
     state,
     isDisabled,
     isLoading,
+    OUTPUT,
   } = useBbmAutomatikV2();
 
   const hasAlarm = isAnyAlarmActive();
@@ -514,12 +516,32 @@ export function BbmAutomatikV2MotorsPage() {
           axisName={AXIS_NAMES[AXIS.DRUECKER]}
         />
 
-        {/* Bürste (Rotation) */}
-        <AxisControl
-          axisIndex={AXIS.BUERSTE}
-          axisName={AXIS_NAMES[AXIS.BUERSTE]}
-          isRotation
-        />
+        {/* Bürstenmotor (einfach AN/AUS über Digital Output) */}
+        {(() => {
+          const buerstenmotorOn = state?.output_states[OUTPUT.BUERSTENMOTOR] ?? false;
+          return (
+            <ControlCard title="Bürstenmotor">
+              <div className="flex flex-col gap-4">
+                <TouchButton
+                  variant={buerstenmotorOn ? "destructive" : "default"}
+                  icon={buerstenmotorOn ? "lu:Square" : "lu:Play"}
+                  onClick={() => setBuerstenmotor(!buerstenmotorOn)}
+                  disabled={isDisabled}
+                  isLoading={isLoading}
+                  className={`h-14 text-lg ${buerstenmotorOn ? "" : "bg-green-600 hover:bg-green-700"}`}
+                >
+                  {buerstenmotorOn ? "AUS" : "AN"}
+                </TouchButton>
+
+                {buerstenmotorOn && (
+                  <div className="animate-pulse text-center font-semibold text-green-600">
+                    Bürstenmotor aktiv
+                  </div>
+                )}
+              </div>
+            </ControlCard>
+          );
+        })()}
 
       </ControlGrid>
     </Page>

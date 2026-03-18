@@ -173,9 +173,9 @@ export function BbmAutomatikV2StatusPage() {
               "Ampel Rot",
               "Ampel Gelb",
               "Ampel Grün",
-              "Pneumatik",
+              "Bürstenmotor",
               "Rüttelmotor",
-              "DO 6 (frei)",
+              "Pneumatik",
               "DO 7 (frei)",
               "DO 8 (frei)",
             ].map((name, index) => {

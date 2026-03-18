@@ -681,7 +681,7 @@ export const bbmAutomatikV2: MachineProperties = {
     },
     {
       role: 4,
-      role_label: "PTO 2 (EL2522) - Drücker, Bürste",
+      role_label: "PTO 2 (EL2522) - Drücker",
       allowed_devices: [
         {
           vendor_id: 0x2,
