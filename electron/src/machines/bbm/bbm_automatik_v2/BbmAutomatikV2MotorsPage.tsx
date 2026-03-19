@@ -516,22 +516,35 @@ export function BbmAutomatikV2MotorsPage() {
           axisName={AXIS_NAMES[AXIS.DRUECKER]}
         />
 
-        {/* Bürstenmotor (einfach AN/AUS über Digital Output) */}
+        {/* Bürstenmotor (AN/AUS über Digital Output) */}
         {(() => {
           const buerstenmotorOn = state?.output_states[OUTPUT.BUERSTENMOTOR] ?? false;
           return (
             <ControlCard title="Bürstenmotor">
               <div className="flex flex-col gap-4">
-                <TouchButton
-                  variant={buerstenmotorOn ? "destructive" : "default"}
-                  icon={buerstenmotorOn ? "lu:Square" : "lu:Play"}
-                  onClick={() => setBuerstenmotor(!buerstenmotorOn)}
-                  disabled={isDisabled}
-                  isLoading={isLoading}
-                  className={`h-14 text-lg ${buerstenmotorOn ? "" : "bg-green-600 hover:bg-green-700"}`}
-                >
-                  {buerstenmotorOn ? "AUS" : "AN"}
-                </TouchButton>
+                <div className="flex gap-2">
+                  <TouchButton
+                    variant="default"
+                    icon="lu:Play"
+                    onClick={() => setBuerstenmotor(true)}
+                    disabled={isDisabled || buerstenmotorOn}
+                    isLoading={isLoading}
+                    className={`h-12 flex-1 ${buerstenmotorOn || isDisabled ? "border-gray-400 bg-gray-400 text-gray-600 hover:bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
+                  >
+                    AN
+                  </TouchButton>
+
+                  <TouchButton
+                    variant="destructive"
+                    icon="lu:Square"
+                    onClick={() => setBuerstenmotor(false)}
+                    disabled={isDisabled || !buerstenmotorOn}
+                    isLoading={isLoading}
+                    className={`h-12 flex-1 ${!buerstenmotorOn && !isDisabled ? "border-gray-400 bg-gray-400 text-gray-600 hover:bg-gray-400" : ""}`}
+                  >
+                    AUS
+                  </TouchButton>
+                </div>
 
                 {buerstenmotorOn && (
                   <div className="animate-pulse text-center font-semibold text-green-600">
