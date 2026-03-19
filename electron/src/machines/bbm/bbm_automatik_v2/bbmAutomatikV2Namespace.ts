@@ -20,7 +20,7 @@ import { MachineIdentificationUnique } from "@/machines/types";
 
 /**
  * State event schema - controllable values
- * 4 axes (MT, Schieber, Drücker, Bürste)
+ * 3 axes (MT, Schieber, Drücker) - Bürste is now a digital output
  */
 export const stateEventDataSchema = z.object({
   output_states: z.tuple([
@@ -33,11 +33,10 @@ export const stateEventDataSchema = z.object({
     z.boolean(),
     z.boolean(),
   ]),
-  axis_speeds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
-  axis_target_speeds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
-  axis_accelerations: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  axis_speeds: z.tuple([z.number(), z.number(), z.number()]),
+  axis_target_speeds: z.tuple([z.number(), z.number(), z.number()]),
+  axis_accelerations: z.tuple([z.number(), z.number(), z.number()]),
   axis_target_positions: z.tuple([
-    z.number(),
     z.number(),
     z.number(),
     z.number(),
@@ -46,10 +45,8 @@ export const stateEventDataSchema = z.object({
     z.boolean(),
     z.boolean(),
     z.boolean(),
-    z.boolean(),
   ]),
   axis_homing_active: z.tuple([
-    z.boolean(),
     z.boolean(),
     z.boolean(),
     z.boolean(),
@@ -58,10 +55,8 @@ export const stateEventDataSchema = z.object({
     z.number().nullable(),
     z.number().nullable(),
     z.number().nullable(),
-    z.number().nullable(),
   ]),
   axis_alarm_active: z.tuple([
-    z.boolean(),
     z.boolean(),
     z.boolean(),
     z.boolean(),
@@ -88,7 +83,7 @@ export const liveValuesEventDataSchema = z.object({
     z.boolean(),
     z.boolean(),
   ]),
-  axis_positions: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  axis_positions: z.tuple([z.number(), z.number(), z.number()]),
 });
 
 // ========== Event Schemas with Wrappers ==========

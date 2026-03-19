@@ -21,12 +21,11 @@ const DEFAULT_ACCELERATION_MM_S2 = 100;
 const MAX_ACCELERATION_MM_S2 = 500;
 const MIN_ACCELERATION_MM_S2 = 1;
 
-// Axis indices
+// Axis indices (PTO axes only - Bürste is now a digital output)
 export const AXIS = {
   MT: 0,
   SCHIEBER: 1,
   DRUECKER: 2,
-  BUERSTE: 3,
 } as const;
 
 // Axis names for display
@@ -34,7 +33,6 @@ export const AXIS_NAMES = [
   "Transporter",
   "Schieber",
   "Drücker",
-  "Bürste",
 ] as const;
 
 // Digital input indices
@@ -53,8 +51,9 @@ export const OUTPUT = {
   AMPEL_ROT: 0,
   AMPEL_GELB: 1,
   AMPEL_GRUEN: 2,
-  PNEUMATIK: 3,
+  BUERSTENMOTOR: 3,
   RUETTELMOTOR: 4,
+  PNEUMATIK: 5,
 } as const;
 
 function useBbmAutomatik(
@@ -140,7 +139,7 @@ function useBbmAutomatik(
   const setAxisSpeedMmS = (index: number, speed_mm_s: number) => {
     updateStateOptimistically(
       (current) => {
-        if (current.data.axis_speeds && index >= 0 && index < 4) {
+        if (current.data.axis_speeds && index >= 0 && index < 3) {
           current.data.axis_speeds[index] = Math.round(
             speed_mm_s * PULSES_PER_MM,
           );
@@ -172,7 +171,7 @@ function useBbmAutomatik(
   const setAxisSpeedRpm = (index: number, rpm: number) => {
     updateStateOptimistically(
       (current) => {
-        if (current.data.axis_speeds && index >= 0 && index < 4) {
+        if (current.data.axis_speeds && index >= 0 && index < 3) {
           // RPM to Hz: rpm * 200 / 60
           current.data.axis_speeds[index] = Math.round(
             (rpm * PULSES_PER_REV) / 60,
@@ -222,8 +221,8 @@ function useBbmAutomatik(
   const stopAllAxes = () => {
     updateStateOptimistically(
       (current) => {
-        current.data.axis_speeds = [0, 0, 0, 0];
-        current.data.axis_target_speeds = [0, 0, 0, 0];
+        current.data.axis_speeds = [0, 0, 0];
+        current.data.axis_target_speeds = [0, 0, 0];
       },
       () =>
         requestStopAllAxes({
@@ -252,7 +251,7 @@ function useBbmAutomatik(
   ) => {
     updateStateOptimistically(
       (current) => {
-        if (current.data.axis_target_positions && index >= 0 && index < 4) {
+        if (current.data.axis_target_positions && index >= 0 && index < 3) {
           current.data.axis_target_positions[index] = Math.round(
             position_mm * PULSES_PER_MM,
           );
@@ -285,7 +284,7 @@ function useBbmAutomatik(
   const setAxisAcceleration = (index: number, accel_mm_s2: number) => {
     updateStateOptimistically(
       (current) => {
-        if (current.data.axis_accelerations && index >= 0 && index < 4) {
+        if (current.data.axis_accelerations && index >= 0 && index < 3) {
           current.data.axis_accelerations[index] = accel_mm_s2;
         }
       },
@@ -296,6 +295,30 @@ function useBbmAutomatik(
             action: "SetAxisAcceleration",
             value: { index, accel_mm_s2 },
           },
+        }),
+    );
+  };
+
+  // SetBuerstenmotor mutation
+  const setBuerstenmotorSchema = z.object({
+    action: z.literal("SetBuerstenmotor"),
+    value: z.object({
+      on: z.boolean(),
+    }),
+  });
+  const { request: requestSetBuerstenmotor } = useMachineMutation(
+    setBuerstenmotorSchema,
+  );
+
+  const setBuerstenmotor = (on: boolean) => {
+    updateStateOptimistically(
+      (current) => {
+        current.data.output_states[OUTPUT.BUERSTENMOTOR] = on;
+      },
+      () =>
+        requestSetBuerstenmotor({
+          machine_identification_unique,
+          data: { action: "SetBuerstenmotor", value: { on } },
         }),
     );
   };
@@ -460,7 +483,7 @@ function useBbmAutomatik(
   const resetAlarms = () => {
     updateStateOptimistically(
       (current) => {
-        current.data.axis_alarm_active = [false, false, false, false];
+        current.data.axis_alarm_active = [false, false, false];
       },
       () =>
         requestResetAlarms({
@@ -559,6 +582,7 @@ function useBbmAutomatik(
     stopAllAxes,
 
     // Convenience functions
+    setBuerstenmotor,
     setRuettelmotor,
     setPneumatik,
     setAmpel,

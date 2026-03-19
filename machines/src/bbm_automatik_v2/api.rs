@@ -14,14 +14,14 @@ use std::sync::Arc;
 #[derive(Serialize, Debug, Clone)]
 pub struct StateEvent {
     pub output_states: [bool; 8],
-    pub axis_speeds: [i32; 4],
-    pub axis_target_speeds: [i32; 4],
-    pub axis_accelerations: [f32; 4],
-    pub axis_target_positions: [i32; 4], // Signed to support negative positions
-    pub axis_position_mode: [bool; 4],
-    pub axis_homing_active: [bool; 4],
-    pub axis_soft_limit_max: [Option<f32>; 4],
-    pub axis_alarm_active: [bool; 4],
+    pub axis_speeds: [i32; 3],
+    pub axis_target_speeds: [i32; 3],
+    pub axis_accelerations: [f32; 3],
+    pub axis_target_positions: [i32; 3], // Signed to support negative positions
+    pub axis_position_mode: [bool; 3],
+    pub axis_homing_active: [bool; 3],
+    pub axis_soft_limit_max: [Option<f32>; 3],
+    pub axis_alarm_active: [bool; 3],
     pub door_interlock_active: bool,
     pub auto_running: bool,
     pub auto_current_set: u32,
@@ -40,7 +40,7 @@ impl StateEvent {
 #[derive(Serialize, Debug, Clone)]
 pub struct LiveValuesEvent {
     pub input_states: [bool; 8],
-    pub axis_positions: [i32; 4], // Signed to support negative positions
+    pub axis_positions: [i32; 3], // Signed to support negative positions
 }
 
 impl LiveValuesEvent {
@@ -81,6 +81,8 @@ pub enum Mutation {
     StopAxis { index: usize },
     /// Stop all axes
     StopAllAxes,
+    /// Set Bürstenmotor on/off
+    SetBuerstenmotor { on: bool },
     /// Set Rüttelmotor on/off
     SetRuettelmotor { on: bool },
     /// Set Pneumatik valve on/off
@@ -152,6 +154,7 @@ impl MachineApi for BbmAutomatikV2 {
             } => self.move_to_position_mm(index, position_mm, speed_mm_s),
             Mutation::StopAxis { index } => self.stop_axis(index),
             Mutation::StopAllAxes => self.stop_all_axes(),
+            Mutation::SetBuerstenmotor { on } => self.set_buerstenmotor(on),
             Mutation::SetRuettelmotor { on } => self.set_ruettelmotor(on),
             Mutation::SetPneumatik { on } => self.set_pneumatik(on),
             Mutation::SetAmpel { rot, gelb, gruen } => self.set_ampel(rot, gelb, gruen),

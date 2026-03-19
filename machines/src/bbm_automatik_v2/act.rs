@@ -55,7 +55,7 @@ impl MachineAct for BbmAutomatikV2 {
             if should_log {
                 self.last_debug_log = Some(now);
                 // Log info for moving axes
-                let axis_names = ["MT", "Schieber", "Drücker", "Bürste"];
+                let axis_names = ["MT", "Schieber", "Drücker"];
                 for (i, &speed) in self.axis_speeds.iter().enumerate() {
                     if speed != 0 {
                         let pos = self.axes[i].get_position();

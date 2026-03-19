@@ -136,7 +136,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
 
             // ========== Pulse Train Outputs #2 (1x EL2522) ==========
             // Channel 1: Drücker - Linear
-            // Channel 2: Bürste - Rotation
+            // Channel 2: unused (Bürste moved to digital output)
             let (el2522_2, subdevice_2, subdevice_index_2) = get_ethercat_device::<EL2522>(
                 hardware,
                 params,
@@ -146,6 +146,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
             .await?;
 
             // Configure EL2522 #2 - Hardware ramp enabled
+            // Only Channel 1 (Drücker) is used. Channel 2 (PTO2) is unused (Bürste moved to DO).
             let el2522_2_config = EL2522Configuration {
                 // Channel 1: Drücker (Linear)
                 channel1_configuration: EL2522ChannelConfiguration {
@@ -160,19 +161,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
                     ramp_time_constant_falling: 2250,
                     ..Default::default()
                 },
-                // Channel 2: Bürste (Rotation) - no position control needed
-                channel2_configuration: EL2522ChannelConfiguration {
-                    operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
-                    ramp_function_active: true,
-                    direct_input_mode: true,
-                    base_frequency_1: 5000,
-                    frequency_factor: 100,
-                    travel_distance_control: false, // No position control for rotation
-                    watchdog_timer_deactive: true,
-                    ramp_time_constant_rising: 2500,
-                    ramp_time_constant_falling: 2250,
-                    ..Default::default()
-                },
+                // Channel 2: unused (Bürste is now a digital output)
                 ..Default::default()
             };
 
@@ -182,14 +171,13 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 .write_config(&subdevice_2, &el2522_2_config)
                 .await?;
 
-            tracing::info!("[BbmAutomatikV2] EL2522 #2 configured: Ch1=Drücker, Ch2=Bürste");
+            tracing::info!("[BbmAutomatikV2] EL2522 #2 configured: Ch1=Drücker (Ch2=unused)");
 
-            // Create PulseTrainOutput array for 4 axes
+            // Create PulseTrainOutput array for 3 axes (Bürste is now a digital output)
             let axes = [
                 PulseTrainOutput::new(el2522_1.clone(), EL2522Port::PTO1), // MT
                 PulseTrainOutput::new(el2522_1.clone(), EL2522Port::PTO2), // Schieber
                 PulseTrainOutput::new(el2522_2.clone(), EL2522Port::PTO1), // Drücker
-                PulseTrainOutput::new(el2522_2.clone(), EL2522Port::PTO2), // Bürste
             ];
 
             let (sender, receiver) = smol::channel::unbounded();
@@ -206,22 +194,21 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 digital_outputs,
                 output_states: [false; 8],
                 axes,
-                axis_speeds: [0; 4],
-                axis_target_speeds: [0; 4],
-                axis_accelerations: [100.0; 4], // Default: 100 mm/s²
-                axis_target_positions: [0; 4],
-                axis_position_mode: [false; 4],
-                axis_position_ignore_cycles: [0; 4],
+                axis_speeds: [0; 3],
+                axis_target_speeds: [0; 3],
+                axis_accelerations: [100.0; 3], // Default: 100 mm/s²
+                axis_target_positions: [0; 3],
+                axis_position_mode: [false; 3],
+                axis_position_ignore_cycles: [0; 3],
                 sdo_write_u16: params.sdo_write_u16.clone(),
                 pto_subdevice_indices: [subdevice_index_1, subdevice_index_2],
                 axis_homing_phase: [
                     crate::bbm_automatik_v2::HomingPhase::Idle,
                     crate::bbm_automatik_v2::HomingPhase::Idle,
                     crate::bbm_automatik_v2::HomingPhase::Idle,
-                    crate::bbm_automatik_v2::HomingPhase::Idle,
                 ],
-                axis_homing_retract_target: [0; 4],
-                axis_alarm_active: [false; 4],
+                axis_homing_retract_target: [0; 3],
+                axis_alarm_active: [false; 3],
                 door_interlock_active: false,
                 auto_sequence: None,
                 last_debug_log: None,

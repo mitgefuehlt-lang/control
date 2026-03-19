@@ -15,20 +15,19 @@ pub mod new;
 use crate::bbm_automatik_v2::api::BbmAutomatikV2Namespace;
 
 /// Device Roles for BbmAutomatikV2
-/// Hardware: 2x EL2522 (4 Achsen), EL1008, EL2008
+/// Hardware: 2x EL2522 (3 Achsen), EL1008, EL2008
 pub mod roles {
     pub const DIGITAL_INPUT: u16 = 1; // EL1008 - 8x DI (3x Alarm, 3x Referenzschalter NC, 1x Türsensor)
-    pub const DIGITAL_OUTPUT: u16 = 2; // EL2008 - 8x DO (1x Rüttelmotor, 3x Ampel)
+    pub const DIGITAL_OUTPUT: u16 = 2; // EL2008 - 8x DO (3x Ampel, 1x Bürstenmotor, 1x Rüttelmotor, 1x Pneumatik)
     pub const PTO_1: u16 = 3; // EL2522 #1 - Kanal 1: MT, Kanal 2: Schieber
-    pub const PTO_2: u16 = 4; // EL2522 #2 - Kanal 1: Drücker, Kanal 2: Bürste
+    pub const PTO_2: u16 = 4; // EL2522 #2 - Kanal 1: Drücker, Kanal 2: unused
 }
 
-/// Axis indices
+/// Axis indices (PTO axes only - Bürste is now a digital output)
 pub mod axes {
     pub const MT: usize = 0; // Magazin Transporter (Linear)
     pub const SCHIEBER: usize = 1; // Schieber (Linear)
     pub const DRUECKER: usize = 2; // Drücker (Linear)
-    pub const BUERSTE: usize = 3; // Bürste (Rotation)
 }
 
 /// Digital input indices (0-based array index, DI1 = index 0)
@@ -47,8 +46,9 @@ pub mod outputs {
     pub const AMPEL_ROT: usize = 0; // Ampel Rot (DO1 = index 0)
     pub const AMPEL_GELB: usize = 1; // Ampel Gelb (DO2 = index 1)
     pub const AMPEL_GRUEN: usize = 2; // Ampel Grün (DO3 = index 2)
-    pub const PNEUMATIK: usize = 3; // Pneumatik 3/2-Ventil (DO4 = index 3)
+    pub const BUERSTENMOTOR: usize = 3; // Bürstenmotor on/off (DO4 = index 3)
     pub const RUETTELMOTOR: usize = 4; // Rüttelmotor (DO5 = index 4)
+    pub const PNEUMATIK: usize = 5; // Pneumatik 3/2-Ventil (DO6 = index 5)
 }
 
 /// Soft limits per axis in mm (0 = home position after homing)
@@ -59,13 +59,13 @@ pub mod soft_limits {
     pub const DRUECKER_MAX_MM: f32 = 107.0;
     pub const MIN_MM: f32 = 0.0;
 
-    /// Get max position for axis in mm (None = no limit, e.g. rotation)
+    /// Get max position for axis in mm (None = no limit)
     pub fn max_position_mm(axis: usize) -> Option<f32> {
         match axis {
             super::axes::MT => Some(MT_MAX_MM),
             super::axes::SCHIEBER => Some(SCHIEBER_MAX_MM),
             super::axes::DRUECKER => Some(DRUECKER_MAX_MM),
-            _ => None, // Bürste = rotation, no limit
+            _ => None,
         }
     }
 }
@@ -85,25 +85,21 @@ pub mod speed_presets {
         pub mt_mm_s: f32,
         pub schieber_mm_s: f32,
         pub druecker_mm_s: f32,
-        pub buerste_rpm: f32,
     }
     pub const SLOW: SpeedPreset = SpeedPreset {
         mt_mm_s: 30.0,
         schieber_mm_s: 40.0,
         druecker_mm_s: 40.0,
-        buerste_rpm: 30.0,
     };
     pub const MEDIUM: SpeedPreset = SpeedPreset {
         mt_mm_s: 60.0,
         schieber_mm_s: 80.0,
         druecker_mm_s: 80.0,
-        buerste_rpm: 50.0,
     };
     pub const FAST: SpeedPreset = SpeedPreset {
         mt_mm_s: 100.0,
         schieber_mm_s: 150.0,
         druecker_mm_s: 150.0,
-        buerste_rpm: 70.0,
     };
 }
 
@@ -218,32 +214,31 @@ pub struct BbmAutomatikV2 {
     pub digital_outputs: [DigitalOutput; 8],
     pub output_states: [bool; 8],
 
-    // Pulse Train Outputs (2x EL2522 = 4 channels)
+    // Pulse Train Outputs (2x EL2522 = 3 channels used)
     // Axis 0: MT (EL2522 #1, Ch1)
     // Axis 1: Schieber (EL2522 #1, Ch2)
     // Axis 2: Drücker (EL2522 #2, Ch1)
-    // Axis 3: Bürste (EL2522 #2, Ch2)
-    pub axes: [PulseTrainOutput; 4],
-    pub axis_speeds: [i32; 4],
-    pub axis_target_speeds: [i32; 4],
-    pub axis_accelerations: [f32; 4],
-    pub axis_target_positions: [i32; 4],
-    pub axis_position_mode: [bool; 4],
+    pub axes: [PulseTrainOutput; 3],
+    pub axis_speeds: [i32; 3],
+    pub axis_target_speeds: [i32; 3],
+    pub axis_accelerations: [f32; 3],
+    pub axis_target_positions: [i32; 3],
+    pub axis_position_mode: [bool; 3],
     /// Ignore select_end_counter for N cycles after starting a new move
     /// (hardware needs time to process go_counter and clear the old signal)
-    pub axis_position_ignore_cycles: [u8; 4],
+    pub axis_position_ignore_cycles: [u8; 3],
 
     // Hardware ramp control
     pub sdo_write_u16: Option<crate::SdoWriteU16Fn>,
     pub pto_subdevice_indices: [usize; 2],
 
     // Homing state
-    pub axis_homing_phase: [HomingPhase; 4],
-    pub axis_homing_retract_target: [i32; 4],
+    pub axis_homing_phase: [HomingPhase; 3],
+    pub axis_homing_retract_target: [i32; 3],
 
     // Driver alarm state (CL75t alarm pins)
     /// true = alarm active (axis stopped), per axis
-    pub axis_alarm_active: [bool; 4],
+    pub axis_alarm_active: [bool; 3],
 
     // Door interlock
     pub door_interlock_active: bool,
@@ -284,7 +279,6 @@ impl BbmAutomatikV2 {
             self.axis_homing_phase[0] != HomingPhase::Idle,
             self.axis_homing_phase[1] != HomingPhase::Idle,
             self.axis_homing_phase[2] != HomingPhase::Idle,
-            self.axis_homing_phase[3] != HomingPhase::Idle,
         ];
 
         StateEvent {
@@ -299,7 +293,6 @@ impl BbmAutomatikV2 {
                 soft_limits::max_position_mm(0),
                 soft_limits::max_position_mm(1),
                 soft_limits::max_position_mm(2),
-                soft_limits::max_position_mm(3),
             ],
             axis_alarm_active: self.axis_alarm_active,
             door_interlock_active: self.door_interlock_active,
@@ -320,7 +313,7 @@ impl BbmAutomatikV2 {
         }
 
         // Read axis positions from PTO feedback (interpret u32 as i32 for negative positions)
-        let mut positions = [0i32; 4];
+        let mut positions = [0i32; 3];
         for (i, axis) in self.axes.iter().enumerate() {
             positions[i] = axis.get_position() as i32;
         }
@@ -430,7 +423,7 @@ impl BbmAutomatikV2 {
     }
 
     /// Set target axis speed in RPM (hardware ramp handles transition)
-    /// For rotation axes without ball screw (e.g., Bürste)
+    /// For rotation axes without ball screw
     pub fn set_axis_speed_rpm(&mut self, index: usize, rpm: f32) {
         if index < self.axis_target_speeds.len() {
             let hz = mechanics::rpm_to_hz(rpm);
@@ -455,7 +448,7 @@ impl BbmAutomatikV2 {
             // NOTE: SdoWriteU16Fn returns () - errors are handled inside the callback.
             // If SDO write fails, the hardware keeps the old ramp values.
             if let Some(sdo_write) = &self.sdo_write_u16 {
-                // Which EL2522? Axis 0,1 = EL2522#1, Axis 2,3 = EL2522#2
+                // Which EL2522? Axis 0,1 = EL2522#1, Axis 2 = EL2522#2
                 let el2522_idx = if index < 2 { 0 } else { 1 };
                 let subdevice_index = self.pto_subdevice_indices[el2522_idx];
 
@@ -643,6 +636,11 @@ impl BbmAutomatikV2 {
 
     // ============ Convenience Functions ============
 
+    /// Set Bürstenmotor on/off
+    pub fn set_buerstenmotor(&mut self, on: bool) {
+        self.set_output(outputs::BUERSTENMOTOR, on);
+    }
+
     /// Set Rüttelmotor on/off
     pub fn set_ruettelmotor(&mut self, on: bool) {
         self.set_output(outputs::RUETTELMOTOR, on);
@@ -734,7 +732,7 @@ impl BbmAutomatikV2 {
             }
         }
 
-        self.axis_alarm_active = [false; 4];
+        self.axis_alarm_active = [false; 3];
         tracing::info!("[BbmAutomatikV2] All alarms reset");
         self.emit_state();
     }
@@ -753,7 +751,7 @@ impl BbmAutomatikV2 {
             axes::DRUECKER => !self.digital_inputs[inputs::REF_DRUECKER]
                 .get_value()
                 .unwrap_or(true),
-            _ => false, // Bürste has no home switch
+            _ => false,
         }
     }
 
@@ -762,9 +760,9 @@ impl BbmAutomatikV2 {
     /// Start homing sequence for an axis
     /// Sequence: 1) Move negative until sensor, 2) Retract 2mm, 3) Set position to 0
     pub fn start_homing(&mut self, index: usize) {
-        if index >= self.axes.len() || index == axes::BUERSTE {
+        if index >= self.axes.len() {
             tracing::warn!(
-                "[BbmAutomatikV2] Cannot home axis {} (invalid or rotation axis)",
+                "[BbmAutomatikV2] Cannot home axis {} (invalid axis)",
                 index
             );
             return;
