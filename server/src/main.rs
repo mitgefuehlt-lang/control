@@ -137,48 +137,27 @@ pub async fn start_interface_discovery(
     app_state: Arc<SharedState>,
     sender: Sender<HotThreadMessage>,
 ) {
-    const MAX_RETRIES: u32 = 5;
-    const RETRY_DELAY_SECS: u64 = 3;
-
     let interface = find_ethercat_interface().await;
     tracing::info!("Inferface found {}, setting up EtherCAT loop", interface);
     set_ethercat_iface(interface.clone());
+    let res = setup_loop(&interface, app_state.clone()).await;
 
-    for attempt in 1..=MAX_RETRIES {
-        let res = setup_loop(&interface, app_state.clone()).await;
+    match res {
+        Ok(setup) => {
+            let _ = sender.send(HotThreadMessage::AddEtherCatSetup(setup)).await;
+            tracing::info!("Successfully initialized EtherCAT devices");
+        }
 
-        match res {
-            Ok(setup) => {
-                let _ = sender.send(HotThreadMessage::AddEtherCatSetup(setup)).await;
-                tracing::info!("Successfully initialized EtherCAT devices");
-                send_ethercat_found(app_state.clone(), &interface).await;
-                return;
-            }
-
-            Err(e) => {
-                tracing::error!(
-                    "[{}::main] Failed to initialize EtherCAT network (attempt {}/{})\n{:?}",
-                    module_path!(),
-                    attempt,
-                    MAX_RETRIES,
-                    e
-                );
-                if attempt < MAX_RETRIES {
-                    tracing::info!(
-                        "Retrying EtherCAT initialization in {}s...",
-                        RETRY_DELAY_SECS
-                    );
-                    smol::Timer::after(Duration::from_secs(RETRY_DELAY_SECS)).await;
-                }
-            }
+        Err(e) => {
+            tracing::error!(
+                "[{}::main] Failed to initialize EtherCAT network, exiting for systemd restart\n{:?}",
+                module_path!(),
+                e
+            );
+            let _ = start_dnsmasq();
+            std::process::exit(1);
         }
     }
-
-    tracing::error!(
-        "EtherCAT initialization failed after {} attempts. Starting without EtherCAT.",
-        MAX_RETRIES
-    );
-    let _ = start_dnsmasq();
     send_ethercat_found(app_state.clone(), &interface).await;
 }
 
