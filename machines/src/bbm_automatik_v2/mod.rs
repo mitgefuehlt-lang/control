@@ -43,9 +43,9 @@ pub mod inputs {
 
 /// Digital output indices
 pub mod outputs {
-    pub const AMPEL_ROT: usize = 0; // Ampel Rot (DO1 = index 0)
+    pub const AMPEL_GRUEN: usize = 0; // Ampel Grün (DO1 = index 0)
     pub const AMPEL_GELB: usize = 1; // Ampel Gelb (DO2 = index 1)
-    pub const AMPEL_GRUEN: usize = 2; // Ampel Grün (DO3 = index 2)
+    pub const AMPEL_ROT: usize = 2; // Ampel Rot (DO3 = index 2)
     pub const BUERSTENMOTOR: usize = 3; // Bürstenmotor on/off (DO4 = index 3)
     pub const RUETTELMOTOR: usize = 4; // Rüttelmotor (DO5 = index 4)
     pub const PNEUMATIK: usize = 5; // Pneumatik 3/2-Ventil (DO6 = index 5)

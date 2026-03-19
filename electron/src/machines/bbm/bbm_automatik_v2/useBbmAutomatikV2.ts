@@ -48,9 +48,9 @@ export const INPUT = {
 
 // Digital output indices
 export const OUTPUT = {
-  AMPEL_ROT: 0,
+  AMPEL_GRUEN: 0,
   AMPEL_GELB: 1,
-  AMPEL_GRUEN: 2,
+  AMPEL_ROT: 2,
   BUERSTENMOTOR: 3,
   RUETTELMOTOR: 4,
   PNEUMATIK: 5,
