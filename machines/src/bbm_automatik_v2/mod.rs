@@ -18,7 +18,7 @@ use crate::bbm_automatik_v2::api::BbmAutomatikV2Namespace;
 /// Hardware: 2x EL2522 (3 Achsen), EL1008, EL2008
 pub mod roles {
     pub const DIGITAL_INPUT: u16 = 1; // EL1008 - 8x DI (3x Alarm, 3x Referenzschalter NC, 1x Türsensor)
-    pub const DIGITAL_OUTPUT: u16 = 2; // EL2008 - 8x DO (3x Ampel, 1x Bürstenmotor, 1x Rüttelmotor, 1x Pneumatik)
+    pub const DIGITAL_OUTPUT: u16 = 2; // EL2008 - 8x DO (3x Ampel, 1x Bürstenmotor, 1x Rüttelmotor, 1x Pneumatik, 1x Lüfter)
     pub const PTO_1: u16 = 3; // EL2522 #1 - Kanal 1: MT, Kanal 2: Schieber
     pub const PTO_2: u16 = 4; // EL2522 #2 - Kanal 1: Drücker, Kanal 2: unused
 }
@@ -49,6 +49,7 @@ pub mod outputs {
     pub const BUERSTENMOTOR: usize = 3; // Bürstenmotor on/off (DO4 = index 3)
     pub const RUETTELMOTOR: usize = 4; // Rüttelmotor (DO5 = index 4)
     pub const PNEUMATIK: usize = 5; // Pneumatik 3/2-Ventil (DO6 = index 5)
+    pub const LUEFTER: usize = 6; // Schaltschrank-Lüfter (DO7 = index 6)
 }
 
 /// Soft limits per axis in mm (0 = home position after homing)
@@ -649,6 +650,11 @@ impl BbmAutomatikV2 {
     /// Set Pneumatik valve on/off
     pub fn set_pneumatik(&mut self, on: bool) {
         self.set_output(outputs::PNEUMATIK, on);
+    }
+
+    /// Set Schaltschrank-Lüfter on/off
+    pub fn set_luefter(&mut self, on: bool) {
+        self.set_output(outputs::LUEFTER, on);
     }
 
     /// Set Ampel state

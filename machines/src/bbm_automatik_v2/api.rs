@@ -87,6 +87,8 @@ pub enum Mutation {
     SetRuettelmotor { on: bool },
     /// Set Pneumatik valve on/off
     SetPneumatik { on: bool },
+    /// Set Schaltschrank-Lüfter on/off
+    SetLuefter { on: bool },
     /// Set Ampel (traffic light) state
     SetAmpel { rot: bool, gelb: bool, gruen: bool },
     /// Start homing sequence for an axis
@@ -157,6 +159,7 @@ impl MachineApi for BbmAutomatikV2 {
             Mutation::SetBuerstenmotor { on } => self.set_buerstenmotor(on),
             Mutation::SetRuettelmotor { on } => self.set_ruettelmotor(on),
             Mutation::SetPneumatik { on } => self.set_pneumatik(on),
+            Mutation::SetLuefter { on } => self.set_luefter(on),
             Mutation::SetAmpel { rot, gelb, gruen } => self.set_ampel(rot, gelb, gruen),
             Mutation::StartHoming { index } => self.start_homing(index),
             Mutation::CancelHoming { index } => self.cancel_homing(index),

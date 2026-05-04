@@ -54,6 +54,7 @@ export const OUTPUT = {
   BUERSTENMOTOR: 3,
   RUETTELMOTOR: 4,
   PNEUMATIK: 5,
+  LUEFTER: 6,
 } as const;
 
 function useBbmAutomatik(
@@ -370,6 +371,29 @@ function useBbmAutomatik(
     );
   };
 
+  // SetLuefter mutation
+  const setLuefterSchema = z.object({
+    action: z.literal("SetLuefter"),
+    value: z.object({
+      on: z.boolean(),
+    }),
+  });
+  const { request: requestSetLuefter } =
+    useMachineMutation(setLuefterSchema);
+
+  const setLuefter = (on: boolean) => {
+    updateStateOptimistically(
+      (current) => {
+        current.data.output_states[OUTPUT.LUEFTER] = on;
+      },
+      () =>
+        requestSetLuefter({
+          machine_identification_unique,
+          data: { action: "SetLuefter", value: { on } },
+        }),
+    );
+  };
+
   // SetAmpel mutation
   const setAmpelSchema = z.object({
     action: z.literal("SetAmpel"),
@@ -585,6 +609,7 @@ function useBbmAutomatik(
     setBuerstenmotor,
     setRuettelmotor,
     setPneumatik,
+    setLuefter,
     setAmpel,
     areDoorsClosed: areDoorsClosedFn,
 

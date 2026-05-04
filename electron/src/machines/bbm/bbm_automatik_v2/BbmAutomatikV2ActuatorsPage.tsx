@@ -10,6 +10,7 @@ export function BbmAutomatikV2ActuatorsPage() {
     state,
     setRuettelmotor,
     setPneumatik,
+    setLuefter,
     setAmpel,
     isDisabled,
     isLoading,
@@ -18,6 +19,7 @@ export function BbmAutomatikV2ActuatorsPage() {
 
   const ruettelmotorOn = state?.output_states[OUTPUT.RUETTELMOTOR] ?? false;
   const pneumatikOn = state?.output_states[OUTPUT.PNEUMATIK] ?? false;
+  const luefterOn = state?.output_states[OUTPUT.LUEFTER] ?? false;
   const ampelRot = state?.output_states[OUTPUT.AMPEL_ROT] ?? false;
   const ampelGelb = state?.output_states[OUTPUT.AMPEL_GELB] ?? false;
   const ampelGruen = state?.output_states[OUTPUT.AMPEL_GRUEN] ?? false;
@@ -64,6 +66,28 @@ export function BbmAutomatikV2ActuatorsPage() {
             {ruettelmotorOn && (
               <div className="animate-pulse text-center font-semibold text-green-600">
                 Rüttelmotor aktiv
+              </div>
+            )}
+          </div>
+        </ControlCard>
+
+        {/* Lüfter */}
+        <ControlCard title="Lüfter Schaltschrank">
+          <div className="flex flex-col gap-4">
+            <TouchButton
+              variant={luefterOn ? "destructive" : "default"}
+              icon={luefterOn ? "lu:Square" : "lu:Play"}
+              onClick={() => setLuefter(!luefterOn)}
+              disabled={isDisabled}
+              isLoading={isLoading}
+              className={`h-14 text-lg ${luefterOn ? "" : "bg-green-600 hover:bg-green-700"}`}
+            >
+              {luefterOn ? "AUS" : "AN"}
+            </TouchButton>
+
+            {luefterOn && (
+              <div className="animate-pulse text-center font-semibold text-green-600">
+                Lüfter aktiv
               </div>
             )}
           </div>
