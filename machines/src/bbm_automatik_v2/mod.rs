@@ -236,6 +236,10 @@ pub struct BbmAutomatikV2 {
     // Homing state
     pub axis_homing_phase: [HomingPhase; 3],
     pub axis_homing_retract_target: [i32; 3],
+    /// true once homing Phase 3 (SettingZero) has completed for this axis.
+    /// Soft limits are only enforced after this flag is set, because before
+    /// homing the position counter is arbitrary and would block negative jog/home moves.
+    pub axis_homed: [bool; 3],
 
     // Driver alarm state (CL75t alarm pins)
     /// true = alarm active (axis stopped), per axis
@@ -592,23 +596,29 @@ impl BbmAutomatikV2 {
 
             // ====== JOG MODE: Send speed directly to hardware ======
             if !self.axis_position_mode[i] {
-                // Check soft limits during JOG
-                if let Some(max_mm) = soft_limits::max_position_mm(i) {
-                    let current_mm =
-                        self.axes[i].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
-                    let target = self.axis_target_speeds[i];
+                // Soft limits only apply once axis is homed AND not currently homing.
+                // Before homing the position counter is arbitrary, so enforcing MIN/MAX
+                // would block negative jog/home moves needed to reach the reference switch.
+                let enforce_soft_limits =
+                    self.axis_homed[i] && self.axis_homing_phase[i] == HomingPhase::Idle;
+                if enforce_soft_limits {
+                    if let Some(max_mm) = soft_limits::max_position_mm(i) {
+                        let current_mm =
+                            self.axes[i].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
+                        let target = self.axis_target_speeds[i];
 
-                    // Stop if at max and moving positive, or at min and moving negative
-                    if (current_mm >= max_mm && target > 0)
-                        || (current_mm <= soft_limits::MIN_MM && target < 0)
-                    {
-                        if self.axis_target_speeds[i] != 0 {
-                            self.axis_target_speeds[i] = 0;
-                            tracing::warn!(
-                                "[BbmAutomatikV2] Axis {} soft limit reached at {:.1} mm - stopping",
-                                i,
-                                current_mm
-                            );
+                        // Stop if at max and moving positive, or at min and moving negative
+                        if (current_mm >= max_mm && target > 0)
+                            || (current_mm <= soft_limits::MIN_MM && target < 0)
+                        {
+                            if self.axis_target_speeds[i] != 0 {
+                                self.axis_target_speeds[i] = 0;
+                                tracing::warn!(
+                                    "[BbmAutomatikV2] Axis {} soft limit reached at {:.1} mm - stopping",
+                                    i,
+                                    current_mm
+                                );
+                            }
                         }
                     }
                 }
@@ -884,6 +894,8 @@ impl BbmAutomatikV2 {
 
                         // Homing complete!
                         self.axis_homing_phase[i] = HomingPhase::Idle;
+                        // From here on, soft limits apply (position counter is now calibrated).
+                        self.axis_homed[i] = true;
 
                         tracing::info!(
                             "[BbmAutomatikV2] Axis {} homing COMPLETE - position is now 0",

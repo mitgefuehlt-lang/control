@@ -208,6 +208,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
                     crate::bbm_automatik_v2::HomingPhase::Idle,
                 ],
                 axis_homing_retract_target: [0; 3],
+                axis_homed: [false; 3],
                 axis_alarm_active: [false; 3],
                 door_interlock_active: false,
                 auto_sequence: None,
