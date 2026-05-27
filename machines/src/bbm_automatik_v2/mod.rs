@@ -485,9 +485,19 @@ impl BbmAutomatikV2 {
     /// Hardware ramps up, brakes, and stops exactly at target
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
         if index < self.axes.len() {
-            // Clamp to soft limits
-            let clamped_mm = if let Some(max) = soft_limits::max_position_mm(index) {
-                position_mm.clamp(soft_limits::MIN_MM, max)
+            // Soft limits only apply once the axis is homed AND not currently
+            // homing. Before homing the position counter is arbitrary, so
+            // clamping to MIN_MM=0 would block negative jog moves (e.g. the
+            // "- JOG" button when the user wants to drive below 0 before
+            // setting the zero reference).
+            let enforce_soft_limits =
+                self.axis_homed[index] && self.axis_homing_phase[index] == HomingPhase::Idle;
+            let clamped_mm = if enforce_soft_limits {
+                if let Some(max) = soft_limits::max_position_mm(index) {
+                    position_mm.clamp(soft_limits::MIN_MM, max)
+                } else {
+                    position_mm
+                }
             } else {
                 position_mm
             };
