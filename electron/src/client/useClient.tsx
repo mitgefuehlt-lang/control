@@ -6,6 +6,7 @@ import {
 } from "@/machines/types";
 import { useState } from "react";
 import { z } from "zod";
+import { getServerBaseUrl } from "@/lib/serverUrl";
 
 const mutationResponseSchema = z.discriminatedUnion("success", [
   z.object({
@@ -57,7 +58,7 @@ type Client = {
   }) => Promise<MutationResponseSchema>;
 };
 
-const baseUrl = "http://localhost:3001";
+const baseUrl = getServerBaseUrl();
 
 export const getClient = () => {
   const client: Client = {

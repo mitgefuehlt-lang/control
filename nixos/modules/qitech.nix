@@ -102,6 +102,10 @@ in {
       environment = {
         RUST_BACKTRACE = "full";
         RUST_LOG = "info";
+        # Tell the Rust server where to find the static React UI bundle so
+        # the tablet (or any browser on the LAN) can reach the UI via
+        # http://<host>:3001 directly, alongside the Electron app.
+        QITECH_WEB_DIR = "${pkgs.qitechPackages.electron}/share/qitech-control-web";
       };
     };
 

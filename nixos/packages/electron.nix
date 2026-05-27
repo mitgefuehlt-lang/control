@@ -21,6 +21,12 @@ buildNpmPackage rec {
     cp -rv dist-electron/* $out/share/qitech-control-electron
     cp -v src/assets/icon.png $out/share/qitech-control-electron
 
+    # Web bundle for browser/tablet access via the Rust server.
+    # Same Vite output; index.html uses relative asset paths so it works
+    # both via file:// (Electron) and http:// (tablet).
+    mkdir -p $out/share/qitech-control-web
+    cp -rv dist/* $out/share/qitech-control-web
+
     if [ -f src/assets/icon.png ]; then
       mkdir -p $out/share/icons/hicolor/256x256/apps $out/share/pixmaps
 

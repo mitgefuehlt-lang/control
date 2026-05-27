@@ -351,7 +351,10 @@ in {
   };
 
   networking.firewall.enable = true;
-  networking.firewall.allowedTCPPorts = [ 22 ];
+  # 22: SSH. 3001: QiTech Control HTTP/SocketIO (REST + UI bundle for tablets
+  # via http://<host>:3001). enp2s0 (EtherCAT, 10.10.10.0/24) and tailscale0
+  # are fully trusted, so 3001 is implicitly reachable there too.
+  networking.firewall.allowedTCPPorts = [ 22 3001 ];
   networking.firewall.trustedInterfaces = [ "enp2s0" "tailscale0" ];
 
   # This value determines the NixOS release from which the default

@@ -1,8 +1,10 @@
 use anyhow::Result;
 use axum::routing::post;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use tower_http::cors::CorsLayer;
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
@@ -23,14 +25,34 @@ async fn init_api(app_state: Arc<SharedState>) -> Result<()> {
         .on_request(DefaultOnRequest::new().level(Level::TRACE))
         .on_response(DefaultOnResponse::new().level(Level::TRACE));
 
-    let app = axum::Router::new()
+    let mut app = axum::Router::new()
         .route(
             "/api/v1/write_machine_device_identification",
             post(post_write_machine_device_identification),
         )
         .route("/api/v1/machine/mutate", post(post_machine_mutate))
         .nest("/api/v1/metrics", metrics_router())
-        .nest("/api/v2", rest_api_router())
+        .nest("/api/v2", rest_api_router());
+
+    // Serve the React UI bundle for browser/tablet access when QITECH_WEB_DIR
+    // points at a directory containing the Vite build output. SPA fallback
+    // routes unknown paths to index.html so client-side routing keeps working.
+    if let Ok(web_dir) = std::env::var("QITECH_WEB_DIR") {
+        let dir = PathBuf::from(&web_dir);
+        let index = dir.join("index.html");
+        if index.is_file() {
+            tracing::info!("Serving UI bundle from {}", web_dir);
+            let serve_dir = ServeDir::new(&dir).fallback(ServeFile::new(&index));
+            app = app.fallback_service(serve_dir);
+        } else {
+            tracing::warn!(
+                "QITECH_WEB_DIR={} has no index.html, skipping UI serving",
+                web_dir
+            );
+        }
+    }
+
+    let app = app
         .layer(socketio_layer)
         .layer(cors)
         .layer(trace_layer)

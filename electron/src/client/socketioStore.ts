@@ -8,6 +8,7 @@ import { z } from "zod";
 import { toastError, toastZodError } from "@/components/Toast";
 import { MachineIdentificationUnique } from "@/machines/types";
 import { FPS_30 } from "@/lib/constants";
+import { getServerBaseUrl } from "@/lib/serverUrl";
 import { mainNamespaceStore } from "./mainNamespace";
 
 /**
@@ -264,7 +265,7 @@ type SocketioStore = {
  * Global socket store singleton that manages socket.io connections and namespaces
  */
 const useSocketioStore = create<SocketioStore>()((set, get) => ({
-  baseUrl: "http://localhost:3001",
+  baseUrl: getServerBaseUrl(),
   namespaces: {},
   getNamespace: (namespaceId: NamespaceId) => {
     const namespace_path = serializeNamespaceId(namespaceId);

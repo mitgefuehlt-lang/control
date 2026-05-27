@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import { pushRuntimeSample } from "./runtimeSeries";
+import { getServerBaseUrl } from "@/lib/serverUrl";
 
-// Talk directly to the Rust API on port 3001.
-// If you later proxy via Vite/Electron, make this configurable.
-const API_BASE = "http://localhost:3001";
-const RUNTIME_URL = `${API_BASE}/api/v1/metrics/runtime/latest`;
+const RUNTIME_URL = `${getServerBaseUrl()}/api/v1/metrics/runtime/latest`;
 
 export type RuntimeMetricsSample = {
   timestamp_ms: number;
