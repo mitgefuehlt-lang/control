@@ -496,77 +496,94 @@ impl BbmAutomatikV2 {
     }
 
     /// Move to a target position in mm using hardware Travel Distance Control
-    /// Hardware ramps up, brakes, and stops exactly at target
+    /// Hardware ramps up, brakes, and stops exactly at target.
+    ///
+    /// Travel Distance Control on the EL2522 uses unsigned counter compare
+    /// to pick the direction. That means it only works correctly when both
+    /// the current and target counter values are non-negative. For any move
+    /// that would land below 0, we fall back to the same speed-mode +
+    /// software-stop mechanism that `jog_relative` uses.
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
-        if index < self.axes.len() {
-            // Soft limits only apply once the axis is homed AND not currently
-            // homing. Before homing the position counter is arbitrary, so
-            // clamping to MIN_MM=0 would block negative jog moves (e.g. the
-            // "- JOG" button when the user wants to drive below 0 before
-            // setting the zero reference).
-            let enforce_soft_limits =
-                self.axis_homed[index] && self.axis_homing_phase[index] == HomingPhase::Idle;
-            let clamped_mm = if enforce_soft_limits {
-                if let Some(max) = soft_limits::max_position_mm(index) {
-                    position_mm.clamp(soft_limits::MIN_MM, max)
-                } else {
-                    position_mm
-                }
-            } else {
-                position_mm
-            };
+        if index >= self.axes.len() {
+            return;
+        }
 
-            if (clamped_mm - position_mm).abs() > 0.1 {
-                tracing::warn!(
-                    "[BbmAutomatikV2] Axis {} position clamped: {:.1} mm -> {:.1} mm (soft limit)",
-                    index,
-                    position_mm,
-                    clamped_mm
-                );
+        // Only the upper soft limit is enforced. Lower limit (MIN_MM) is
+        // intentionally not enforced so the user can drive into negative
+        // territory (calibration, recalibration, testing the lower end).
+        let enforce_max =
+            self.axis_homed[index] && self.axis_homing_phase[index] == HomingPhase::Idle;
+        let clamped_mm = if enforce_max {
+            match soft_limits::max_position_mm(index) {
+                Some(max) => position_mm.min(max),
+                None => position_mm,
             }
+        } else {
+            position_mm
+        };
 
-            let target_pulses = (clamped_mm.round() * mechanics::PULSES_PER_MM) as i32;
-            let speed_hz = mechanics::mm_per_s_to_hz(speed_mm_s.abs());
-
-            // Determine direction
-            let current_pulses = self.axes[index].get_position() as i32;
-            let direction = if target_pulses > current_pulses {
-                1
-            } else {
-                -1
-            };
-
-            // Position mode activate
-            self.axis_target_positions[index] = target_pulses;
-            self.axis_position_mode[index] = true;
-            // Ignore select_end_counter for 5 cycles (~3.5ms at 700µs cycle)
-            // so hardware has time to process new go_counter and clear stale signal
-            self.axis_position_ignore_cycles[index] = 5;
-
-            // Hardware output: go_counter + target position + speed
-            // In Travel Distance Control mode, the EL2522 hardware automatically
-            // determines direction by comparing target_counter_value vs current position.
-            // frequency_value must be POSITIVE (magnitude only) - sign is NOT used for direction.
-            let mut output = self.axes[index].get_output();
-            output.go_counter = true;
-            output.disble_ramp = false;
-            output.frequency_value = speed_hz;
-            output.target_counter_value = target_pulses as u32;
-            self.axes[index].set_output(output);
-
-            // Sync software state (keep sign for UI display)
-            self.axis_target_speeds[index] = speed_hz * direction;
-            self.axis_speeds[index] = speed_hz * direction;
-
-            self.emit_state();
-            tracing::info!(
-                "[BbmAutomatikV2] Axis {} moving to {:.0} mm ({} pulses) at {:.1} mm/s",
+        if (clamped_mm - position_mm).abs() > 0.1 {
+            tracing::warn!(
+                "[BbmAutomatikV2] Axis {} position clamped: {:.1} mm -> {:.1} mm (soft max)",
                 index,
-                clamped_mm.round(),
-                target_pulses,
-                speed_mm_s
+                position_mm,
+                clamped_mm
             );
         }
+
+        let target_pulses = (clamped_mm.round() * mechanics::PULSES_PER_MM) as i32;
+        let current_pulses = self.axes[index].get_position() as i32;
+
+        // If either side of the move sits in negative-counter territory,
+        // delegate to the speed-mode delta path which handles u32 wraparound
+        // correctly. The EL2522 Travel Distance Control mode would otherwise
+        // pick the wrong direction (huge unsigned vs current).
+        if target_pulses < 0 || current_pulses < 0 {
+            let delta_mm = clamped_mm
+                - (current_pulses as f32 / mechanics::PULSES_PER_MM);
+            self.jog_relative(index, delta_mm, speed_mm_s);
+            return;
+        }
+
+        let speed_hz = mechanics::mm_per_s_to_hz(speed_mm_s.abs());
+
+        // Determine direction
+        let direction = if target_pulses > current_pulses {
+            1
+        } else {
+            -1
+        };
+
+        // Position mode activate
+        self.axis_target_positions[index] = target_pulses;
+        self.axis_position_mode[index] = true;
+        // Ignore select_end_counter for 5 cycles (~3.5ms at 700µs cycle)
+        // so hardware has time to process new go_counter and clear stale signal
+        self.axis_position_ignore_cycles[index] = 5;
+
+        // Hardware output: go_counter + target position + speed
+        // In Travel Distance Control mode, the EL2522 hardware automatically
+        // determines direction by comparing target_counter_value vs current position.
+        // frequency_value must be POSITIVE (magnitude only) - sign is NOT used for direction.
+        let mut output = self.axes[index].get_output();
+        output.go_counter = true;
+        output.disble_ramp = false;
+        output.frequency_value = speed_hz;
+        output.target_counter_value = target_pulses as u32;
+        self.axes[index].set_output(output);
+
+        // Sync software state (keep sign for UI display)
+        self.axis_target_speeds[index] = speed_hz * direction;
+        self.axis_speeds[index] = speed_hz * direction;
+
+        self.emit_state();
+        tracing::info!(
+            "[BbmAutomatikV2] Axis {} moving to {:.0} mm ({} pulses) at {:.1} mm/s",
+            index,
+            clamped_mm.round(),
+            target_pulses,
+            speed_mm_s
+        );
     }
 
     /// Relative jog: drive `delta_mm` from current position at `speed_mm_s`.
@@ -578,16 +595,16 @@ impl BbmAutomatikV2 {
             return;
         }
 
-        // After homing, soft limits clamp the effective delta so we never
-        // drive past 0 or the per-axis max. Before homing the position is
-        // arbitrary, so we trust the user.
-        let enforce_soft_limits =
+        // After homing, only the upper soft limit clamps the move. MIN_MM
+        // is intentionally not enforced - user wants to drive negative for
+        // calibration / recalibration / testing the lower mechanical end.
+        let enforce_max =
             self.axis_homed[index] && self.axis_homing_phase[index] == HomingPhase::Idle;
-        let effective_delta_mm = if enforce_soft_limits {
+        let effective_delta_mm = if enforce_max {
             let current_mm =
                 self.axes[index].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
             let max_mm = soft_limits::max_position_mm(index).unwrap_or(f32::INFINITY);
-            let target_mm = (current_mm + delta_mm).clamp(soft_limits::MIN_MM, max_mm);
+            let target_mm = (current_mm + delta_mm).min(max_mm);
             target_mm - current_mm
         } else {
             delta_mm
@@ -703,29 +720,24 @@ impl BbmAutomatikV2 {
                     }
                 }
 
-                // Soft limits only apply once axis is homed AND not currently homing.
-                // Before homing the position counter is arbitrary, so enforcing MIN/MAX
-                // would block negative jog/home moves needed to reach the reference switch.
-                let enforce_soft_limits =
+                // Soft upper limit only applies once axis is homed AND not
+                // currently homing. Lower limit is intentionally not
+                // enforced - user wants negative jog for calibration etc.
+                let enforce_max =
                     self.axis_homed[i] && self.axis_homing_phase[i] == HomingPhase::Idle;
-                if enforce_soft_limits {
+                if enforce_max {
                     if let Some(max_mm) = soft_limits::max_position_mm(i) {
                         let current_mm =
                             self.axes[i].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
                         let target = self.axis_target_speeds[i];
 
-                        // Stop if at max and moving positive, or at min and moving negative
-                        if (current_mm >= max_mm && target > 0)
-                            || (current_mm <= soft_limits::MIN_MM && target < 0)
-                        {
-                            if self.axis_target_speeds[i] != 0 {
-                                self.axis_target_speeds[i] = 0;
-                                tracing::warn!(
-                                    "[BbmAutomatikV2] Axis {} soft limit reached at {:.1} mm - stopping",
-                                    i,
-                                    current_mm
-                                );
-                            }
+                        if current_mm >= max_mm && target > 0 && self.axis_target_speeds[i] != 0 {
+                            self.axis_target_speeds[i] = 0;
+                            tracing::warn!(
+                                "[BbmAutomatikV2] Axis {} soft max reached at {:.1} mm - stopping",
+                                i,
+                                current_mm
+                            );
                         }
                     }
                 }
@@ -1048,6 +1060,14 @@ impl BbmAutomatikV2 {
 
     // ============ Auto-Sequence State Machine ============
 
+    /// True if axis is mid-move (either Travel Distance Control or
+    /// software-tracked speed-mode jog). Used by the auto-sequence state
+    /// machine to know when to advance to the next step.
+    #[inline]
+    fn is_axis_moving(&self, index: usize) -> bool {
+        self.axis_position_mode[index] || self.axis_jog_active[index]
+    }
+
     /// Update auto-sequence state machine (called from act() loop)
     /// Returns true if state changed (for UI update)
     pub fn update_auto_sequence(&mut self) -> bool {
@@ -1058,7 +1078,7 @@ impl BbmAutomatikV2 {
 
         match seq.current_step {
             AutoCycleStep::WobbleOut => {
-                if !self.axis_position_mode[axes::SCHIEBER] {
+                if !self.is_axis_moving(axes::SCHIEBER) {
                     // Wobble out complete, now wobble back
                     self.move_to_position_mm(
                         axes::SCHIEBER,
@@ -1071,7 +1091,7 @@ impl BbmAutomatikV2 {
                 }
             }
             AutoCycleStep::WobbleBack => {
-                if !self.axis_position_mode[axes::SCHIEBER] {
+                if !self.is_axis_moving(axes::SCHIEBER) {
                     // Wobble done, schieber to target
                     self.move_to_position_mm(
                         axes::SCHIEBER,
@@ -1084,7 +1104,7 @@ impl BbmAutomatikV2 {
                 }
             }
             AutoCycleStep::SchieberToTarget => {
-                if !self.axis_position_mode[axes::SCHIEBER] {
+                if !self.is_axis_moving(axes::SCHIEBER) {
                     // Schieber at target, now drücker pushes
                     self.move_to_position_mm(
                         axes::DRUECKER,
@@ -1097,7 +1117,7 @@ impl BbmAutomatikV2 {
                 }
             }
             AutoCycleStep::DrueckerToTarget => {
-                if !self.axis_position_mode[axes::DRUECKER] {
+                if !self.is_axis_moving(axes::DRUECKER) {
                     // Drücker done, parallel return
                     self.move_to_position_mm(
                         axes::DRUECKER,
@@ -1120,9 +1140,9 @@ impl BbmAutomatikV2 {
             }
             AutoCycleStep::ParallelReturn | AutoCycleStep::WaitParallelComplete => {
                 // Wait for all 3 moves to complete
-                let schieber_done = !self.axis_position_mode[axes::SCHIEBER];
-                let druecker_done = !self.axis_position_mode[axes::DRUECKER];
-                let mt_done = !self.axis_position_mode[axes::MT];
+                let schieber_done = !self.is_axis_moving(axes::SCHIEBER);
+                let druecker_done = !self.is_axis_moving(axes::DRUECKER);
+                let mt_done = !self.is_axis_moving(axes::MT);
                 if schieber_done && druecker_done && mt_done {
                     return self.advance_auto_sequence();
                 }

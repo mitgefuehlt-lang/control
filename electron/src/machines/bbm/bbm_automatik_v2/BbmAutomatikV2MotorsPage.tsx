@@ -324,7 +324,7 @@ function AxisControl({
               compact
               defaultValue={DEFAULT_AXIS_INPUTS.position}
               resetPlacement="header"
-              min={0}
+              min={-500}
               max={softLimitMax ?? 500}
               step={10}
               renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
