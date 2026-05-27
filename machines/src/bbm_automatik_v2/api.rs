@@ -77,6 +77,14 @@ pub enum Mutation {
         position_mm: f32,
         speed_mm_s: f32,
     },
+    /// Relative jog: move `delta_mm` from current position at given speed.
+    /// Uses speed mode (signed direction) and stops in software once the
+    /// counter has moved the requested delta. For the +/- JOG buttons.
+    JogRelative {
+        index: usize,
+        delta_mm: f32,
+        speed_mm_s: f32,
+    },
     /// Stop a single axis
     StopAxis { index: usize },
     /// Stop all axes
@@ -154,6 +162,11 @@ impl MachineApi for BbmAutomatikV2 {
                 position_mm,
                 speed_mm_s,
             } => self.move_to_position_mm(index, position_mm, speed_mm_s),
+            Mutation::JogRelative {
+                index,
+                delta_mm,
+                speed_mm_s,
+            } => self.jog_relative(index, delta_mm, speed_mm_s),
             Mutation::StopAxis { index } => self.stop_axis(index),
             Mutation::StopAllAxes => self.stop_all_axes(),
             Mutation::SetBuerstenmotor { on } => self.set_buerstenmotor(on),

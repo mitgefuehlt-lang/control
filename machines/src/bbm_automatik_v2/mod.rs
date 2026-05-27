@@ -241,6 +241,18 @@ pub struct BbmAutomatikV2 {
     /// homing the position counter is arbitrary and would block negative jog/home moves.
     pub axis_homed: [bool; 3],
 
+    // Relative-jog state. The +/- JOG buttons use speed mode (frequency
+    // value with sign for direction) and stop in software once the counter
+    // has moved by the requested delta. This avoids the EL2522 u32
+    // wraparound that bites Travel Distance Control when the target ends
+    // up below 0 before homing.
+    /// Hardware counter value when the jog was started.
+    pub axis_jog_start_pulses: [u32; 3],
+    /// Signed pulses we want to travel from the start (negative = backwards).
+    pub axis_jog_target_delta: [i32; 3],
+    /// true while a relative-jog move is in progress.
+    pub axis_jog_active: [bool; 3],
+
     // Driver alarm state (CL75t alarm pins)
     /// true = alarm active (axis stopped), per axis
     pub axis_alarm_active: [bool; 3],
@@ -376,6 +388,7 @@ impl BbmAutomatikV2 {
                 self.axis_homing_phase[i] = HomingPhase::Idle;
                 tracing::info!("[BbmAutomatikV2] Axis {} homing cancelled by stop_all", i);
             }
+            self.axis_jog_active[i] = false;
             self.axis_speeds[i] = 0;
             self.axis_target_speeds[i] = 0;
             self.axis_position_mode[i] = false;
@@ -398,6 +411,7 @@ impl BbmAutomatikV2 {
                 self.axis_homing_phase[index] = HomingPhase::Idle;
                 tracing::info!("[BbmAutomatikV2] Axis {} homing cancelled by stop", index);
             }
+            self.axis_jog_active[index] = false;
             self.axis_speeds[index] = 0;
             self.axis_target_speeds[index] = 0;
             self.axis_position_mode[index] = false;
@@ -555,6 +569,60 @@ impl BbmAutomatikV2 {
         }
     }
 
+    /// Relative jog: drive `delta_mm` from current position at `speed_mm_s`.
+    /// Uses speed mode (signed frequency for direction) and stops in software
+    /// once the hardware counter has moved by the requested delta. Use this
+    /// for the +/- JOG buttons; FAHRE still uses move_to_position_mm.
+    pub fn jog_relative(&mut self, index: usize, delta_mm: f32, speed_mm_s: f32) {
+        if index >= self.axes.len() {
+            return;
+        }
+
+        // After homing, soft limits clamp the effective delta so we never
+        // drive past 0 or the per-axis max. Before homing the position is
+        // arbitrary, so we trust the user.
+        let enforce_soft_limits =
+            self.axis_homed[index] && self.axis_homing_phase[index] == HomingPhase::Idle;
+        let effective_delta_mm = if enforce_soft_limits {
+            let current_mm =
+                self.axes[index].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
+            let max_mm = soft_limits::max_position_mm(index).unwrap_or(f32::INFINITY);
+            let target_mm = (current_mm + delta_mm).clamp(soft_limits::MIN_MM, max_mm);
+            target_mm - current_mm
+        } else {
+            delta_mm
+        };
+
+        if effective_delta_mm.abs() < 0.01 {
+            tracing::warn!(
+                "[BbmAutomatikV2] Axis {} jog_relative {:.2} mm dropped (soft limit / zero delta)",
+                index,
+                delta_mm
+            );
+            return;
+        }
+
+        let delta_pulses = (effective_delta_mm.round() * mechanics::PULSES_PER_MM) as i32;
+        let direction = if delta_pulses >= 0 { 1 } else { -1 };
+        let speed_hz_signed = mechanics::mm_per_s_to_hz(speed_mm_s.abs()) * direction;
+
+        self.axis_jog_start_pulses[index] = self.axes[index].get_position();
+        self.axis_jog_target_delta[index] = delta_pulses;
+        self.axis_jog_active[index] = true;
+        self.axis_position_mode[index] = false;
+        self.axis_target_speeds[index] = speed_hz_signed;
+
+        self.emit_state();
+        tracing::info!(
+            "[BbmAutomatikV2] Axis {} jog relative {:+.1} mm at {:.1} mm/s ({} pulses, {} Hz)",
+            index,
+            effective_delta_mm,
+            speed_mm_s,
+            delta_pulses,
+            speed_hz_signed
+        );
+    }
+
     /// Hardware ramp monitor: watches hardware status, does not set speeds
     /// Replaces the old update_software_ramp completely
     pub fn update_hardware_monitor(&mut self) -> bool {
@@ -606,6 +674,35 @@ impl BbmAutomatikV2 {
 
             // ====== JOG MODE: Send speed directly to hardware ======
             if !self.axis_position_mode[i] {
+                // Relative-jog stop: once the counter has moved by the
+                // requested signed delta, zero the target speed so the
+                // ramp brakes the axis to a stop. wrapping_sub handles
+                // u32 underflow correctly: counter < start means a
+                // negative i32 delta.
+                if self.axis_jog_active[i] {
+                    let travelled = self.axes[i]
+                        .get_position()
+                        .wrapping_sub(self.axis_jog_start_pulses[i])
+                        as i32;
+                    let target = self.axis_jog_target_delta[i];
+                    let reached = if target > 0 {
+                        travelled >= target
+                    } else if target < 0 {
+                        travelled <= target
+                    } else {
+                        true
+                    };
+                    if reached {
+                        self.axis_jog_active[i] = false;
+                        self.axis_target_speeds[i] = 0;
+                        tracing::info!(
+                            "[BbmAutomatikV2] Axis {} jog reached delta (travelled {} pulses)",
+                            i,
+                            travelled
+                        );
+                    }
+                }
+
                 // Soft limits only apply once axis is homed AND not currently homing.
                 // Before homing the position counter is arbitrary, so enforcing MIN/MAX
                 // would block negative jog/home moves needed to reach the reference switch.

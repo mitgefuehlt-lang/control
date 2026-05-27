@@ -270,6 +270,33 @@ function useBbmAutomatik(
     );
   };
 
+  // JogRelative mutation (used by +/- JOG buttons; speed mode with
+  // software-stop at the desired delta - avoids u32 wraparound issues
+  // when driving negative before homing)
+  const jogRelativeSchema = z.object({
+    action: z.literal("JogRelative"),
+    value: z.object({
+      index: z.number(),
+      delta_mm: z.number(),
+      speed_mm_s: z.number(),
+    }),
+  });
+  const { request: requestJogRelative } = useMachineMutation(jogRelativeSchema);
+
+  const jogRelative = (
+    index: number,
+    delta_mm: number,
+    speed_mm_s: number,
+  ) => {
+    requestJogRelative({
+      machine_identification_unique,
+      data: {
+        action: "JogRelative",
+        value: { index, delta_mm, speed_mm_s },
+      },
+    });
+  };
+
   // SetAxisAcceleration mutation
   const setAxisAccelerationSchema = z.object({
     action: z.literal("SetAxisAcceleration"),
@@ -602,6 +629,7 @@ function useBbmAutomatik(
     setAxisSpeedRpm,
     setAxisAcceleration,
     moveToPosition,
+    jogRelative,
     stopAxis,
     stopAllAxes,
 

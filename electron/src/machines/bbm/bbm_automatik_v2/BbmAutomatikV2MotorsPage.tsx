@@ -62,6 +62,7 @@ function AxisControl({
     setAxisSpeedRpm,
     setAxisAcceleration,
     moveToPosition,
+    jogRelative,
     stopAxis,
     startHoming,
     cancelHoming,
@@ -141,19 +142,15 @@ function AxisControl({
   };
 
   const handleJogPlus = () => {
-    // Round to avoid float accumulation errors
-    const targetPos = Math.round(currentPosition + inputStepSize);
     setError(null);
     setAxisAcceleration(axisIndex, inputAcceleration);
-    moveToPosition(axisIndex, targetPos, inputSpeed);
+    jogRelative(axisIndex, inputStepSize, inputSpeed);
   };
 
   const handleJogMinus = () => {
-    // Round to avoid float accumulation errors (negative positions allowed)
-    const targetPos = Math.round(currentPosition - inputStepSize);
     setError(null);
     setAxisAcceleration(axisIndex, inputAcceleration);
-    moveToPosition(axisIndex, targetPos, inputSpeed);
+    jogRelative(axisIndex, -inputStepSize, inputSpeed);
   };
 
   // Homing state
