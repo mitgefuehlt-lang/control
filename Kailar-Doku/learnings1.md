@@ -28,6 +28,30 @@ Electron (React/Zustand) --REST--> Axum Server --Channel--> Machine act() Loop
 
 ---
 
+## 1.5 Hardware-Fallen (Stand 2026-05-27)
+
+### EL2522 Travel Distance Control + u32 Counter Wraparound
+**Symptom:** Negative Zielposition wird als positive Riesenzahl interpretiert; Motor faehrt in falsche Richtung oder kehrt um sobald Counter unter 0 wandert.
+
+**Setup:** EL2522 in `PulseDirectionSpecification` + `travel_distance_control: true`. Per PDO setzt der Host `target_counter_value: u32` und `go_counter: bool`. Die Hardware vergleicht `target vs counter` UNSIGNED, um die Richtung zu bestimmen. `frequency_value` wird als POSITIVE Magnitude interpretiert; das Vorzeichen wird ignoriert.
+
+**Beweis aus Logs (BbmAutomatikV2):**
+- `target=-120 pulses` (signed) -> as u32 = 4_294_967_176
+- `current=80, freq=-200Hz` commanded
+- Position steigt: 146 -> 346 -> 546 -> 746 (Motor faehrt POSITIV, Vorzeichen ignoriert)
+
+**Loesung in `machines/src/bbm_automatik_v2/`:**
+- TDC nur fuer Moves nutzen, wo `target >= 0 && current >= 0`.
+- Sonst Speed-Mode (`go_counter=false`, signed `frequency_value`) + Software-Stop via `wrapping_sub` Delta-Tracking. Vorzeichen-Compare auf u32-Subtraktion liefert i32 mit korrektem Vorzeichen, solange `|delta| < 2^31` (in der Praxis immer erfuellt bei realistischen Bewegungen).
+- Hardware-Homing-Pfad nutzt seit jeher `frequency_value=-X` im Speed-Mode (`go_counter=false`) und das funktioniert -> Speed-Mode mit negativem freq ist OK.
+
+**Generalisierbar fuer andere Maschinen?** Vermutlich ja. Andere Beckhoff-PTO-Module (EL2521) duerften aehnlich liegen. Wenn jemand spaeter eine Maschine schreibt die negative Absolutpositionen braucht: gleiche Logik anwenden.
+
+### Soft-Limits: kein MIN, nur MAX
+Auf Wunsch des Users (Kalibrierung, Lower-End-Tests) wird in `BbmAutomatikV2` kein `MIN_MM=0` mehr enforced. Nur die MAX-Grenze pro Achse (MT=230, Schieber=53, Druecker=107) wird gehalten - und auch nur wenn `axis_homed && idle`. Vor Homing keine Limits.
+
+---
+
 ## 2. Kritische Bugs
 
 ### Bug 1: `unsafe static mut` Race Condition
@@ -267,3 +291,133 @@ Sollten konfigurierbar sein (Config-File oder UI-Parameter).
 ---
 
 *Dieses Dokument wurde durch automatisierte Deep-Analysis der gesamten control-master-clean Codebase erstellt.*
+
+---
+
+## 10. Neue Learnings (Maerz 2026)
+
+### Learning 1: setup_loop darf NICHT in einem Retry-Loop aufgerufen werden
+
+**Datum:** 2026-03-19
+**Schwere:** KRITISCH
+
+**Problem:** `setup_loop()` in `server/src/ethercat/setup.rs` registriert Machines und API-Channels in SharedState (`api_machines.insert()`, `AddMachines` Message) BEVOR die EtherCAT State-Transition (Safe-OP/OP) stattfindet. Wenn die Transition fehlschlaegt:
+- Machine-Objekt ist bereits im RT-Loop (mit kaputter EtherCAT-Referenz)
+- API-Channel-Sender ist in SharedState registriert
+- TX/RX Thread laeuft (Box::leaked PduStorage, dedizierter Thread)
+
+Bei erneutem Aufruf von `setup_loop()`:
+- Neues Machine-Objekt mit neuem Channel wird erstellt
+- Alter Channel-Sender in api_machines wird ueberschrieben
+- Altes Machine-Objekt im RT-Loop hat jetzt verwaisten Receiver
+- Ergebnis: `"failed sending into a closed channel"` → UI bekommt keinen State → alle Buttons ausgegraut
+
+**Loesung:** Bei EtherCAT-Init-Fehler → `std::process::exit(1)`. Systemd (`Restart=always`) startet den Prozess sauber neu. Kein verwaister State moeglich.
+
+**Betroffene Datei:** `server/src/main.rs` (`start_interface_discovery`)
+
+### Learning 2: Rust↔TypeScript Konsistenz ist die haeufigste Fehlerquelle
+
+**Datum:** 2026-03-19
+**Schwere:** KRITISCH
+
+**Problem:** Wenn Rust-Structs und TypeScript-Zod-Schemas nicht uebereinstimmen, passieren stille Fehler:
+- **Array-Groesse falsch:** Zod-Validierung schlaegt fehl → `state` ist null → `isDisabled = true` → alle Buttons grau, keine Fehlermeldung sichtbar
+- **Mutation fehlt:** Server gibt JSON-Parse-Error → Request schlaegt fehl → Button "reagiert nicht"
+- **Output-Index falsch:** Falscher physischer Ausgang wird geschaltet → Pneumatik startet Motor
+
+**Betroffene Dateien-Paare (muessen IMMER synchron geaendert werden):**
+
+| Rust-Datei | TypeScript-Datei | Was muss uebereinstimmen |
+|------------|-----------------|--------------------------|
+| `api.rs` → `StateEvent` | `bbm*Namespace.ts` → `stateEventDataSchema` | Alle Felder, Array-Groessen |
+| `api.rs` → `LiveValuesEvent` | `bbm*Namespace.ts` → `liveValuesEventDataSchema` | Alle Felder, Array-Groessen |
+| `api.rs` → `Mutation` enum | `useBbm*.ts` → Mutation Schemas | Jede Variante |
+| `mod.rs` → `outputs::*` | `useBbm*.ts` → `OUTPUT.*` | Exakte Index-Werte |
+| `mod.rs` → `inputs::*` | `useBbm*.ts` → `INPUT.*` | Exakte Index-Werte |
+| `mod.rs` → `axes::*` | `useBbm*.ts` → `AXIS.*` | Exakte Index-Werte |
+
+### Learning 3: Hardware-Pin-Zuordnung immer von der physischen Verdrahtung ableiten
+
+**Datum:** 2026-03-19
+**Schwere:** HOCH
+
+**Problem:** Die Software-Konstanten fuer DO/DI-Indices muessen die PHYSISCHE Verdrahtung widerspiegeln, nicht eine logische Ordnung. Beispiele:
+- Ampel war als Rot-Gelb-Gruen definiert (logisch), aber physisch Gruen-Gelb-Rot verkabelt (DO1=Gruen, DO2=Gelb, DO3=Rot)
+- Buerstenmotor war nicht als DO definiert (war PTO-Achse), wurde aber physisch auf DO4 umverdrahtet
+
+**Regel:** Bei JEDER Hardware-Aenderung:
+1. Physische Verdrahtung dokumentieren (welcher Draht an welcher Klemme)
+2. Software-Konstanten in Rust UND TypeScript anpassen
+3. Beides im selben Commit
+
+### Learning 4: Uncommitted Changes sind die gefaehrlichste Art von Technical Debt
+
+**Datum:** 2026-03-19
+**Schwere:** KRITISCH
+
+**Problem:** 6 Dateien mit kritischen Backend-Aenderungen (Achsen-Reduktion 4→3, neue Output-Indices, neue Mutation) waren lokal geaendert aber nie committed. Ein spaeterer UI-only Commit wurde deployed, was zu inkompatiblem Frontend/Backend fuehrte.
+
+**Symptome:**
+- UI zeigt Buttons die Backend nicht kennt → Button reagiert nicht
+- UI sendet falsche Indices → falscher physischer Ausgang wird geschaltet
+- Zod-Schema passt nicht zu Server-Daten → State wird nie empfangen → alles disabled
+
+**Regel:** Vor JEDEM Commit: `git status` pruefen. Wenn unstaged Dateien existieren die zum gleichen Feature gehoeren → ALLE zusammen committen oder bewusst entscheiden sie auszulassen.
+
+### Learning 5: EtherCAT-Init ist nicht-deterministisch nach Reboot
+
+**Datum:** 2026-03-19
+**Schwere:** MITTEL
+
+**Problem:** Nach `nixos-rebuild boot` + Reboot schlaegt die EtherCAT-Initialisierung in `setup_loop` intermittierend fehl mit "Timeout" bei `init_single_group` oder `into_safe_op`. Beim naechsten Versuch (manueller Service-Restart) funktioniert es fast immer.
+
+**Vermutete Ursache:** Race Condition beim Boot - EtherCAT-Hardware (EK1100 + Klemmen) braucht Zeit zum Hochfahren, aber der Server startet sofort nach dem Systemd-Target.
+
+**Aktuelle Loesung:** `std::process::exit(1)` bei Fehler, systemd startet automatisch neu.
+
+**Moegliche bessere Loesung (noch nicht implementiert):**
+- systemd `After=network-online.target` + `ExecStartPre` mit kurzer Wartezeit
+- Oder: `setup_loop` intern nur die State-Transition (Safe-OP/OP) retrien, OHNE Machines/Channels neu zu erstellen
+
+### Learning 6: Bug 1 (unsafe static mut) wurde bereits gefixt
+
+**Datum:** 2026-03-19
+**Update zu Abschnitt 2, Bug 1**
+
+Der `unsafe static mut LAST_DEBUG` in `act.rs` wurde durch ein normales `last_debug_log: Option<Instant>` Feld im `BbmAutomatikV2` Struct ersetzt. Kein `unsafe` mehr noetig.
+
+### Learning 7: Bug 2 (expect bei Serialisierung) wurde bereits gefixt
+
+**Datum:** 2026-03-19
+**Update zu Abschnitt 2, Bug 2**
+
+Die `expect()` Aufrufe bei `serde_json::to_value()` in `act.rs` wurden durch `unwrap_or_else` mit Error-Logging und `serde_json::Value::Null` Fallback ersetzt.
+
+---
+
+## 11. Aktualisierter Status (Maerz 2026)
+
+### Behobene Bugs aus Abschnitt 2
+| Bug | Status | Commit/Zeitraum |
+|-----|--------|-----------------|
+| Bug 1: unsafe static mut | GEFIXT | Maerz 2026 |
+| Bug 2: expect() bei Serialisierung | GEFIXT | Maerz 2026 |
+| Bug 3: Laser UnsubscribeNamespace Panic | OFFEN | - |
+| Bug 4: todo!() in Machine Cross-Connection | OFFEN | - |
+
+### Aktualisierter Arduino v3.2 Vergleich
+| Feature | Arduino v3.2 | Rust Backend | Status |
+|---------|-------------|--------------|--------|
+| Motor JOG | Ja | Ja | OK |
+| Position Control | Ja | Ja (Travel Distance) | OK |
+| Homing | Ja | Ja (3-Phasen Statemachine) | OK |
+| Soft Limits | Ja | Ja | OK |
+| Driver Alarm | `checkDriverAlarms()` | `check_driver_alarms()` | OK |
+| Emergency Stop | `emergencyStopAll()` | `stop_all_axes()` + Door Interlock | OK |
+| Auto-Sequenz | Vollstaendig | Backend + UI implementiert | OK (neu) |
+| Ruettelmotor-Logik | Automatisch in Zyklus | Manuell + in Auto-Sequenz | OK (neu) |
+| Ampel-Statemachine | Automatisch | Manuell + in Auto-Sequenz | OK (neu) |
+| Speed Presets | Definiert | Backend + UI | OK (neu) |
+| Buerstenmotor | PTO-Achse | Digital Output (DO4) | GEAENDERT |
+| Aktoren-Tab | - | Pneumatik, Ruettelmotor, Ampel | NEU |

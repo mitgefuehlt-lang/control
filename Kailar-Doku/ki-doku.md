@@ -29,6 +29,31 @@
 - Schichten: Electron UI -> Server -> control-core + ethercat-hal.
 - Kommunikation: SocketIO (Events, msgpack) fuer Streaming; REST (Axum) fuer Mutationen.
 - Realtime: eigener Loop-Thread, EtherCAT TX/RX Thread, feste Affinitaeten.
+- Tablet/Browser-Zugriff: derselbe Axum-Server liefert ueber Port 3001 auch die statische React-UI aus (siehe Abschnitt "Tablet/Browser-Zugriff").
+
+## Tablet/Browser-Zugriff (Stand 2026-05-27)
+- URL: `http://192.168.178.106:3001/` (LAN-IP vom Mini-PC `nixos` ueber WLAN `wlo1`).
+- Axum-Router: `server/src/rest/init.rs` hat einen `ServeDir`-Fallback gegated auf Env-Var `QITECH_WEB_DIR`. Pfad wird in `nixos/modules/qitech.nix` auf `${pkgs.qitechPackages.electron}/share/qitech-control-web` gesetzt.
+- Web-Bundle: `nixos/packages/electron.nix` kopiert `dist/*` zusaetzlich nach `share/qitech-control-web` (gleicher Vite-Output wie Electron, Vite nutzt relative Asset-Pfade `./assets/...`).
+- Client-Side: `electron/src/lib/serverUrl.ts` liefert `window.location.origin` im Browser, `http://localhost:3001` bei Electron-`file://`. Verwendet in `socketioStore.ts`, `useClient.tsx`, `useRuntimeMetrics.ts`.
+- TanStack Router nutzt `createMemoryHistory` (`electron/src/routes/router.tsx`) -> Browser-URL bleibt immer `/`, deshalb funktionieren relative Asset-Pfade auch im Browser.
+- Firewall: Port 3001 in `nixos/os/configuration.nix` geoeffnet; `enp2s0` (EtherCAT 10.10.10.0/24) und `tailscale0` sind ohnehin trusted.
+- Bekannte Schwaeche: ServeDir-Fallback liefert auch fuer falsche Asset-URLs (`/assets/nicht-da.js`) ein HTTP 200 mit `index.html` zurueck. Da der Memory-Router keine Deep-Links erzeugt, in der Praxis irrelevant. Bei Bedarf spaeter: Fallback nur fuer Pfade ohne Datei-Endung.
+- Latenz: Touch -> Motorbefehl ueber WLAN ~15-50 ms vs. ~5-10 ms lokal. Akzeptabel fuer Buttons/Aktoren; bei Jog-Buttons kann Loslassen-Latenz Ueberlauf erzeugen. **TODO:** Dead-Man-Logik im Backend (Motor stoppt wenn 200 ms kein "still pressed"-Signal kommt). Hardware-NotAus bleibt Pflicht.
+- **Cache-Falle:** Beim Deploy laedt der Server eine neue `index.html` mit gehashtem JS-Pfad aus. Wenn das Tablet waehrend des Reboots WLAN verliert, kann der SocketIO-Disconnect-Handler `window.location.reload()` verpassen. Symptom: alter UI-Code laeuft weiter und schickt veraltete Mutations. Loesung: Tablet hart refreshen (Tab schliessen + neu oeffnen).
+
+## Negative Positionen (Stand 2026-05-27)
+- **Anforderung:** User kann negativ jogen UND auf negative Absolutpositionen fahren, auch nach Homing (Kalibrierung, Lower-End-Tests).
+- **Hardware-Falle EL2522 Travel Distance Control (TDC):** `target_counter_value` ist u32, Hardware vergleicht `target vs counter` UNSIGNED. Negativer i32 als u32 = ~4,29 Mrd -> Hardware faehrt in falsche Richtung, oder wendet beim u32-Underflow (counter 0 -> 0xFFFFFFFF). Bestaetigt in Logs: `target=-120 pulses, freq=-200Hz commanded, pos steigt 146->346->546`.
+- **Loesung:** Zweigleisig.
+  - Positive Absolutmoves -> Travel Distance Control (praezise, Hardware-Stop). Beispiel: Auto-Sequenz (Schieber 7..51, Druecker 60..105) sowie FAHRE auf Pos >= 0.
+  - Move mit `target < 0 OR current < 0` -> delegiert an `jog_relative` (Speed-Mode + Software-Stop via `wrapping_sub` Delta-Tracking). Beispiel: FAHRE auf -10 mm, oder Auto-Sequenz MT-Advance bis ~-155 mm (MT_RUN=34.5 minus 19x 10mm).
+- **JOG +/- Buttons** schicken jetzt `JogRelative {index, delta_mm, speed_mm_s}` (nicht mehr `MoveToPosition`). Backend setzt `axis_target_speeds = signed Hz`, stoppt softwareseitig wenn `current_pos.wrapping_sub(start_pos) as i32` die geforderte Delta erreicht.
+- **Genauigkeit:** Speed-Mode + Software-Stop hat ~1 Zyklus Latenz = 700 us. Bei 100 mm/s = 0,07 mm Ueberlauf. Bei 10 mm/s = 0,007 mm. Fuer alle aktuellen Use-Cases akzeptabel.
+- **Soft-Limits:** `MIN_MM = 0` Clamp **entfernt** (in `move_to_position_mm`, `jog_relative`, `update_hardware_monitor`). Nur noch MAX wird enforced wenn `axis_homed && idle`. Vor Homing keine Limits.
+- **Helper `is_axis_moving(index)`** in `mod.rs` checkt `axis_position_mode || axis_jog_active`. Auto-Sequence nutzt das (5 Stellen). Frontend nutzt `serverTargetSpeedHz != 0` ueber `state.axis_target_speeds`, das funktioniert fuer beide Pfade automatisch.
+- **Neue Struct-Felder** in `BbmAutomatikV2`: `axis_jog_start_pulses: [u32; 3]`, `axis_jog_target_delta: [i32; 3]`, `axis_jog_active: [bool; 3]`. Initialisiert in `new.rs`. `stop_axis` und `stop_all_axes` setzen `axis_jog_active = false`.
+- **Neue Mutation:** `Mutation::JogRelative { index, delta_mm, speed_mm_s }` in `api.rs`. TS-Schema in `useBbmAutomatikV2.ts` (`jogRelative`). UI in `BbmAutomatikV2MotorsPage.tsx::handleJogPlus/Minus`. Position-Input erlaubt min=-500.
 
 ## Backend Details
 
@@ -2275,3 +2300,175 @@ Komplette Befuell-Sequenz aus Arduino v3.2 als Rust State Machine:
 2. **Test-Seite:** "1x befuellen" und "1 Magazin" machen aktuell das gleiche (1 Set). Fuer Einzel-Zyklus-Test braeuchte es eigene Mutation
 3. **Pause/Resume:** Aktuell nur Start/Stop, kein Pausieren moeglich
 4. **Hardware-Test:** Sequenz auf echter Maschine validieren (Positionen, Timing, Wobble-Effekt)
+
+---
+
+## Session Maerz 2026 (rueckwirkende Dokumentation)
+
+### Chronologie der Aenderungen (Maerz 2026)
+
+#### DI-Remapping und Alarm-Fixes
+
+- **Commit 5f960696**: DI-Layout an Verdrahtung angepasst: Alarm DI1-3, Referenzschalter DI4-6 (NC)
+- **Commit 02b006a9**: Alarm-Check gefixt: jetzt werden alle Achsen-Alarme einzeln gemeldet bevor gestoppt wird
+- **Commit e3bd8972**: Alarm-Polaritaet korrigiert: CL75t ohne Pull-ups liest 0V als "kein Alarm" (Active-High statt Active-Low)
+- **Commit c05e64ab**: DI-Labels im Frontend an neue Verdrahtung angepasst
+
+#### Aktoren-Tab und Deploy-Fixes
+
+- **Commit d55b77b7**: Neuer Aktoren-Tab mit Pneumatik-Ventil, Ruettelmotor und Ampel-Steuerung
+- **Commit 740c7e2a**: Electron pkill Fix: `-f` Flag fuer vollstaendigen Prozessnamen-Match
+- **Commit 33dbb4c9**: fast-deploy Fix: Deploy und Restart in einer SSH-Session kombiniert
+- **Commit efa81882**: fast-deploy Fix: `nixos-rebuild boot` + Reboot statt `switch`
+
+#### Buerstenmotor-Umbau (Hauptaenderung Session 2026-03-19)
+
+**Hintergrund:** Die Buerste wurde von einer PTO-Achse (Stepper via EL2522 Kanal 2) auf einen einfachen Digital-Ausgang (DO4 via EL2008) umgebaut. Die Hardware wurde physisch umverdrahtet.
+
+**Commit cc982c17** (teilweise): DO-Pin-Zuordnung im Commit-Titel erwaehnt, aber **nur die MotorsPage.tsx UI-Datei wurde committed**. Die 6 Backend-Dateien (Rust + TypeScript) blieben uncommitted. Dies fuehrte zu einem schwerwiegenden Bug:
+- Buestenmotor-Button reagierte nicht (Server kannte `SetBuerstenmotor`-Mutation nicht)
+- Pneumatik-Button startete den Motor (beide auf Index 3 / DO4 gemappt)
+
+**Commit a59c58e7** [Claude Opus 4.6]: Buerstenmotor-Button von einzelnem Toggle auf separate AN/AUS-Buttons geaendert (START/STOP-Muster wie andere Motoren). Problem: Backend war immer noch alt.
+
+**Commit a16b1194** [Claude Opus 4.6]: EtherCAT-Init Retry-Loop eingefuegt (5 Versuche, 3s Pause). Vorher gab es keinen Retry bei Timeout nach Reboot - Kommentar im Code war `// if this doesnt work, unlucky`.
+
+**Commit c4b27b1c** [Claude Opus 4.6]: **ROOT-CAUSE-FIX** - Alle 6 fehlenden Backend-Dateien committed:
+- Rust: Buerste von PTO-Achse zu Digital Output konvertiert (4 Achsen -> 3)
+- `BUERSTENMOTOR` = Index 3 (DO4) neu hinzugefuegt
+- `PNEUMATIK` von Index 3 auf Index 5 (DO6) verschoben
+- `SetBuerstenmotor`-Mutation im Rust-Backend hinzugefuegt
+- Alle Achsen-Arrays von Groesse 4 auf 3 reduziert
+- TypeScript: Zod-Schemas (4-Tupel -> 3-Tupel), OUTPUT-Konstanten, Hook aktualisiert
+
+**Commit 3942cf1f** [Claude Opus 4.6]: Ampel-DO-Reihenfolge korrigiert: Hardware ist Gruen-Gelb-Rot verkabelt (DO1=Gruen, DO2=Gelb, DO3=Rot), nicht Rot-Gelb-Gruen.
+
+### Aktuelle DO-Zuordnung (Stand 2026-03-19)
+
+| Index | Konstante | Pin | Geraet |
+|-------|-----------|-----|--------|
+| 0 | AMPEL_GRUEN | DO1 | Ampel Gruen |
+| 1 | AMPEL_GELB | DO2 | Ampel Gelb |
+| 2 | AMPEL_ROT | DO3 | Ampel Rot |
+| 3 | BUERSTENMOTOR | DO4 | Buerstenmotor |
+| 4 | RUETTELMOTOR | DO5 | Ruettelmotor |
+| 5 | PNEUMATIK | DO6 | Pneumatik Ventil |
+
+### Aktuelle DI-Zuordnung (Stand 2026-03-19)
+
+| Index | Konstante | Pin | Geraet |
+|-------|-----------|-----|--------|
+| 0 | ALARM_MT | DI1 | CL75t Alarm Transporter |
+| 1 | ALARM_SCHIEBER | DI2 | CL75t Alarm Schieber |
+| 2 | ALARM_DRUECKER | DI3 | CL75t Alarm Druecker |
+| 3 | REF_MT | DI4 | Referenzschalter MT (NC) |
+| 4 | REF_SCHIEBER | DI5 | Referenzschalter Schieber (NC) |
+| 5 | REF_DRUECKER | DI6 | Referenzschalter Druecker (NC) |
+| 6 | TUER | DI7 | Tuersensor |
+
+### Aktuelle Achsen-Konfiguration (Stand 2026-03-19)
+
+| # | Achse | Typ | EL2522 | Kanal |
+|---|-------|-----|--------|-------|
+| 0 | MT (Magazin Transporter) | Linear | #1 | CH1 |
+| 1 | Schieber | Linear | #1 | CH2 |
+| 2 | Druecker | Linear | #2 | CH1 |
+| - | (Buerste) | ~~PTO~~ -> DO4 | ~~#2 CH2~~ | unused |
+
+### EtherCAT Init nach Reboot (Stand 2026-03-19, aktualisiert)
+
+**Problem:** Nach `nixos-rebuild boot` + Reboot scheitert die EtherCAT-Initialisierung intermittierend mit Timeout bei `init_single_group` oder `into_safe_op`.
+
+**Fehlversuch Retry-Loop (Commit a16b1194, zurueckgenommen in 80f10093):**
+Zuerst wurde ein Retry-Loop in `start_interface_discovery()` eingebaut (5 Versuche, 3s Pause). Das hat SCHLIMMERE Probleme erzeugt:
+- Jeder fehlgeschlagene `setup_loop()`-Aufruf registriert bereits Machines + API-Channels
+- Bei Retry: doppelte Machines im RT-Loop, verwaiste Channels
+- Ergebnis: `"failed sending into a closed channel"` → UI bekommt keinen State → alle Buttons ausgegraut
+
+**Aktuelle Loesung (Commit 80f10093):**
+- Bei EtherCAT-Init-Fehler: `std::process::exit(1)`
+- Systemd (`Restart=always`) startet den Prozess sauber neu
+- Kein verwaister State, keine doppelten Machines
+
+### Ampel DO-Reihenfolge Fix (Commit 3942cf1f)
+
+Ampel war als Rot-Gelb-Gruen (Index 0-1-2) definiert, aber physisch Gruen-Gelb-Rot verkabelt.
+- DO1 = Ampel Gruen (Index 0)
+- DO2 = Ampel Gelb (Index 1)
+- DO3 = Ampel Rot (Index 2)
+
+### Alle Commits dieser Session (2026-03-19)
+
+| Commit | Beschreibung | Dateien |
+|--------|-------------|---------|
+| a59c58e7 | Buerstenmotor: separate AN/AUS Buttons | MotorsPage.tsx |
+| a16b1194 | EtherCAT Retry-Loop (spaeter zurueckgenommen) | server/src/main.rs |
+| c4b27b1c | **ROOT-FIX:** Buerste PTO→DO, alle Backend+Frontend Dateien | 6 Dateien (Rust+TS) |
+| 3942cf1f | Ampel DO-Reihenfolge: Gruen-Gelb-Rot | mod.rs, useBbm*.ts |
+| 80f10093 | Retry-Loop entfernt, process::exit(1) statt Retry | server/src/main.rs |
+
+### Kritische Lektion: Immer alle zugehoerigen Dateien zusammen committen
+
+Am 2026-03-19 wurde nur die UI-Komponente committed, waehrend 6 Backend-Dateien mit kritischen Aenderungen (DO-Pin-Mapping, Achsen-Reduktion, neue Mutation) uncommitted blieben. Der Deploy enthielt dadurch inkompatiblen Frontend/Backend-Code. **Regel: Vor jedem Commit `git status` pruefen und alle zusammengehoerenden Aenderungen (Rust + TypeScript + Zod-Schemas) gemeinsam committen.**
+
+### Kritische Lektion: setup_loop niemals in Retry-Loop aufrufen
+
+`setup_loop()` hat Seiteneffekte (Machine-Erstellung, Channel-Registrierung, Thread-Spawn, Box::leak) die bei erneutem Aufruf nicht aufgeraeumt werden. Bei EtherCAT-Fehler immer den ganzen Prozess neustarten (systemd).
+
+### Eingerichtete Qualitaetssicherung
+
+**CLAUDE.md** im Repo-Root erstellt mit:
+- Pflicht-Lektuere (ki-doku.md + learnings1.md) bei jeder neuen Session
+- 5-Stufen Validierungs-Pipeline (Vollstaendigkeit, Konsistenz, Architektur, Post-Commit, Post-Deploy)
+- Hardware-Zuordnungstabellen (DO/DI/Achsen)
+- Wichtige Befehle (SSH, Deploy, Logs)
+
+**Memory-System** eingerichtet unter `.claude/projects/.../memory/`:
+- `feedback_always_commit_all_changes.md` - Regel: Rust+TS immer zusammen committen
+- `feedback_5_stage_validation.md` - Detaillierte Agent-Prompts fuer die 5 Validierungsstufen
+- `project_bbm_hw_mapping.md` - Aktuelle DO-Pin-Zuordnung
+
+---
+
+## Session 2026-05-21: Soft-Limit-Gating per axis_homed Flag
+
+### Problem
+Beim Jog oder Homing in negativer Richtung blieben die Achsen stehen, sobald der Positions-Counter <= 0 war. Da der EL2522-Counter beim Einschalten einen zufaelligen Wert hat (zeigt zB -5mm), wurde der Soft-Limit-Check in `update_hardware_monitor()` schon vor jeder Kalibrierung wirksam und blockierte exakt die negative Bewegung, die das Homing zum Finden des Referenzschalters braucht.
+
+### Root Cause
+In `machines/src/bbm_automatik_v2/mod.rs:596-614` (vor Fix):
+```rust
+if (current_mm >= max_mm && target > 0)
+    || (current_mm <= soft_limits::MIN_MM && target < 0)
+{
+    self.axis_target_speeds[i] = 0;
+}
+```
+`MIN_MM = 0.0` wurde unabhaengig vom Homing-Status enforced. Da `start_homing()` einfach `axis_target_speeds[i]` negativ setzt und denselben Codepfad nutzt, wurde auch das Homing selbst unterdrueckt.
+
+### Loesung (Commit 0bd94985)
+Neues Feld `axis_homed: [bool; 3]` auf der Struktur. Soft-Limit-Check nur aktiv wenn:
+```rust
+self.axis_homed[i] && self.axis_homing_phase[i] == HomingPhase::Idle
+```
+Flag wird `true` am Ende von Homing-Phase 3 (`SettingZero`), wenn der Counter nachweislich auf 0 gesetzt wurde. `stop_axis` / `cancel_homing` resetten das Flag NICHT - die Kalibrierung ueberlebt einen Stop.
+
+### Geaenderte Dateien
+- `machines/src/bbm_automatik_v2/mod.rs` - Feld-Definition, Gating-Check, Flag-Set nach Phase 3
+- `machines/src/bbm_automatik_v2/new.rs` - Init mit `[false; 3]`
+
+### Bewusste Scope-Grenze
+`move_to_position_mm()` clampt weiterhin auf `[0, max]` auch bei `axis_homed=false`. Position-Moves vor dem Homing sind grundsaetzlich unsicher (Counter willkuerlich) und wurden in dieser Session bewusst nicht angefasst. Mittelfristig sinnvoll: Position-Move ablehnen wenn `!axis_homed`, statt clampen.
+
+### Verhalten nach Fix
+| Zustand | Negative Jog | Homing |
+|---------|--------------|--------|
+| Cold-Start (ungehomt) | OK (kein Limit) | OK (kein Limit) |
+| Homing aktiv | n/a | OK (Phase != Idle ueberspringt Check) |
+| Nach Homing (Idle) | Stop bei 0mm (wie vorher) | Re-Home setzt Phase != Idle, geht durch |
+
+### Validierung
+5-Stufen-Pipeline durchlaufen:
+- Stufe 1-3 (Vollstaendigkeit, Konsistenz, Architektur): keine TS-Aenderungen noetig - Feld ist intern, StateEvent unveraendert
+- Stufe 4 (Post-Commit): `git show --stat HEAD` zeigt nur die 2 zusammengehoerigen Rust-Dateien
+- Stufe 5 (Post-Deploy): `journalctl` zeigt erwarteten EtherCAT-Timeout → systemd restart → "Group in OP state" + "received machines[BbmAutomatikV2]", keine error/panic/closed channel
