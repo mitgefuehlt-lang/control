@@ -54,13 +54,17 @@ async fn init_api(app_state: Arc<SharedState>) -> Result<()> {
         }
     }
 
-    // Force the browser to revalidate cached responses so a freshly deployed
-    // index.html (and the new asset URLs it references) reach the tablet on
-    // every page load instead of the cached version sticking around. ServeDir
-    // emits ETag/Last-Modified, so a 304 round-trip is the typical cost.
+    // Force the browser to bypass any cache on every request. We can't
+    // rely on revalidation: NixOS builds set every file's mtime to
+    // 1970-01-01 for reproducibility, so ServeDir's Last-Modified
+    // header is constant across deploys and `no-cache` revalidation
+    // always returns 304 — the browser would keep serving the OLD
+    // index.html (with the old hashed asset URLs) forever. `no-store`
+    // forbids any caching at all and forces a network fetch each time;
+    // for a tablet on a small LAN bundle the latency cost is negligible.
     let no_cache = SetResponseHeaderLayer::if_not_present(
         header::CACHE_CONTROL,
-        HeaderValue::from_static("no-cache, must-revalidate"),
+        HeaderValue::from_static("no-store"),
     );
 
     let app = app

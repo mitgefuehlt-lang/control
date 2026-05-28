@@ -235,6 +235,11 @@ pub mod calibration {
         /// pre-date this field.
         #[serde(default = "soft_limits::default_max_position_array")]
         pub soft_limit_max_mm: [Option<f32>; 3],
+        /// Per-axis lower soft limit in mm. `None` means no limit
+        /// (default — matches pre-feature behaviour where the user could
+        /// drive into negative territory for calibration).
+        #[serde(default)]
+        pub soft_limit_min_mm: [Option<f32>; 3],
     }
 
     impl Default for CalibrationFile {
@@ -242,6 +247,7 @@ pub mod calibration {
             Self {
                 axes: Default::default(),
                 soft_limit_max_mm: soft_limits::default_max_position_array(),
+                soft_limit_min_mm: [None; 3],
             }
         }
     }
@@ -294,6 +300,7 @@ pub mod calibration {
     pub fn save(
         axes: &[AxisTeachPositions; 3],
         soft_limit_max_mm: &[Option<f32>; 3],
+        soft_limit_min_mm: &[Option<f32>; 3],
     ) {
         let p = path();
         if let Some(parent) = p.parent() {
@@ -310,6 +317,7 @@ pub mod calibration {
         let file = CalibrationFile {
             axes: axes.clone(),
             soft_limit_max_mm: *soft_limit_max_mm,
+            soft_limit_min_mm: *soft_limit_min_mm,
         };
         let json = match serde_json::to_string_pretty(&file) {
             Ok(j) => j,
@@ -460,6 +468,10 @@ pub struct BbmAutomatikV2 {
     /// only after homing and outside of a homing run. Editable from the
     /// calibration UI and persisted alongside `teach_positions`.
     pub axis_soft_limit_max_mm: [Option<f32>; 3],
+    /// Per-axis lower soft limit in mm. `None` means no limit (default —
+    /// the user often wants to drive into negative territory). Enforced
+    /// the same way as the upper limit.
+    pub axis_soft_limit_min_mm: [Option<f32>; 3],
 
     // Debug logging
     pub last_debug_log: Option<Instant>,
@@ -505,6 +517,7 @@ impl BbmAutomatikV2 {
             axis_position_mode: self.axis_position_mode,
             axis_homing_active: homing_active,
             axis_soft_limit_max: self.axis_soft_limit_max_mm,
+            axis_soft_limit_min: self.axis_soft_limit_min_mm,
             axis_alarm_active: self.axis_alarm_active,
             door_interlock_active: self.door_interlock_active,
             auto_running: self.auto_sequence.is_some(),
@@ -715,16 +728,20 @@ impl BbmAutomatikV2 {
             return;
         }
 
-        // Only the upper soft limit is enforced. There is no lower limit
-        // — the user drives into negative territory for calibration,
-        // recalibration, and lower-end mechanical tests.
-        let enforce_max =
+        // Soft limits (both bounds) are only enforced after homing and
+        // outside of an active homing run. `None` for either bound means
+        // "no limit" — the user is free to drive past it.
+        let enforce_limits =
             self.axis_homed[index] && self.axis_homing_phase[index] == HomingPhase::Idle;
-        let clamped_mm = if enforce_max {
-            match self.axis_soft_limit_max_mm[index] {
-                Some(max) => position_mm.min(max),
-                None => position_mm,
+        let clamped_mm = if enforce_limits {
+            let mut v = position_mm;
+            if let Some(max) = self.axis_soft_limit_max_mm[index] {
+                v = v.min(max);
             }
+            if let Some(min) = self.axis_soft_limit_min_mm[index] {
+                v = v.max(min);
+            }
+            v
         } else {
             position_mm
         };
@@ -876,20 +893,31 @@ impl BbmAutomatikV2 {
 
             // ====== SPEED MODE: Send target frequency to hardware ======
             if !self.axis_position_mode[i] {
-                // Soft upper limit only applies once axis is homed AND not
-                // currently homing. Lower limit is intentionally not
-                // enforced — user wants negative travel for calibration.
-                let enforce_max =
+                // Soft limits only apply once the axis is homed AND not
+                // currently homing. Each bound is independently optional.
+                let enforce_limits =
                     self.axis_homed[i] && self.axis_homing_phase[i] == HomingPhase::Idle;
-                if enforce_max {
+                if enforce_limits {
+                    let current_mm = self.current_logical_mm(i);
                     if let Some(max_mm) = self.axis_soft_limit_max_mm[i] {
-                        let current_mm = self.current_logical_mm(i);
                         if current_mm >= max_mm
                             && self.axis_target_speeds[i] > 0
                         {
                             self.axis_target_speeds[i] = 0;
                             tracing::warn!(
                                 "[BbmAutomatikV2] Axis {} soft max reached at {:.1} mm - stopping",
+                                i,
+                                current_mm
+                            );
+                        }
+                    }
+                    if let Some(min_mm) = self.axis_soft_limit_min_mm[i] {
+                        if current_mm <= min_mm
+                            && self.axis_target_speeds[i] < 0
+                        {
+                            self.axis_target_speeds[i] = 0;
+                            tracing::warn!(
+                                "[BbmAutomatikV2] Axis {} soft min reached at {:.1} mm - stopping",
                                 i,
                                 current_mm
                             );
@@ -1488,7 +1516,11 @@ impl BbmAutomatikV2 {
             slot,
             pos_mm
         );
-        calibration::save(&self.teach_positions, &self.axis_soft_limit_max_mm);
+        calibration::save(
+            &self.teach_positions,
+            &self.axis_soft_limit_max_mm,
+            &self.axis_soft_limit_min_mm,
+        );
         self.emit_state();
     }
 
@@ -1505,7 +1537,11 @@ impl BbmAutomatikV2 {
             TeachSlot::Custom2 => t.custom2 = None,
         }
         tracing::info!("[BbmAutomatikV2] Cleared axis {} slot {:?}", axis, slot);
-        calibration::save(&self.teach_positions, &self.axis_soft_limit_max_mm);
+        calibration::save(
+            &self.teach_positions,
+            &self.axis_soft_limit_max_mm,
+            &self.axis_soft_limit_min_mm,
+        );
         self.emit_state();
     }
 
@@ -1554,27 +1590,40 @@ impl BbmAutomatikV2 {
                 return;
             }
         }
-        calibration::save(&self.teach_positions, &self.axis_soft_limit_max_mm);
+        calibration::save(
+            &self.teach_positions,
+            &self.axis_soft_limit_max_mm,
+            &self.axis_soft_limit_min_mm,
+        );
         self.emit_state();
     }
 
     /// Set (or clear) the upper soft-limit for an axis. `None` removes
     /// the limit; `Some(mm)` clamps subsequent moves to that position.
-    /// Persisted alongside teach positions.
+    /// Persisted alongside teach positions. The new max must stay above
+    /// the current min if both are set; otherwise the change is rejected.
     pub fn set_soft_limit_max(&mut self, axis: usize, max_mm: Option<f32>) {
         if axis >= self.axis_soft_limit_max_mm.len() {
             return;
         }
-        // Negative or zero limits are nonsensical (origin sits at 0).
-        // Reject silently so the UI can't brick the axis.
         if let Some(v) = max_mm {
-            if !v.is_finite() || v <= 0.0 {
+            if !v.is_finite() {
                 tracing::warn!(
-                    "[BbmAutomatikV2] Reject soft-limit axis {}: {:.3} mm (must be > 0)",
-                    axis,
-                    v
+                    "[BbmAutomatikV2] Reject soft-limit max axis {}: non-finite",
+                    axis
                 );
                 return;
+            }
+            if let Some(min) = self.axis_soft_limit_min_mm[axis] {
+                if v <= min {
+                    tracing::warn!(
+                        "[BbmAutomatikV2] Reject soft-limit max axis {}: {:.3} <= current min {:.3}",
+                        axis,
+                        v,
+                        min
+                    );
+                    return;
+                }
             }
         }
         self.axis_soft_limit_max_mm[axis] = max_mm;
@@ -1583,8 +1632,72 @@ impl BbmAutomatikV2 {
             axis,
             max_mm
         );
-        calibration::save(&self.teach_positions, &self.axis_soft_limit_max_mm);
+        calibration::save(
+            &self.teach_positions,
+            &self.axis_soft_limit_max_mm,
+            &self.axis_soft_limit_min_mm,
+        );
         self.emit_state();
+    }
+
+    /// Set (or clear) the lower soft-limit for an axis. `None` removes
+    /// the limit (default — many axes are intentionally unbounded on
+    /// the lower side). The new min must stay below the current max if
+    /// both are set; otherwise the change is rejected.
+    pub fn set_soft_limit_min(&mut self, axis: usize, min_mm: Option<f32>) {
+        if axis >= self.axis_soft_limit_min_mm.len() {
+            return;
+        }
+        if let Some(v) = min_mm {
+            if !v.is_finite() {
+                tracing::warn!(
+                    "[BbmAutomatikV2] Reject soft-limit min axis {}: non-finite",
+                    axis
+                );
+                return;
+            }
+            if let Some(max) = self.axis_soft_limit_max_mm[axis] {
+                if v >= max {
+                    tracing::warn!(
+                        "[BbmAutomatikV2] Reject soft-limit min axis {}: {:.3} >= current max {:.3}",
+                        axis,
+                        v,
+                        max
+                    );
+                    return;
+                }
+            }
+        }
+        self.axis_soft_limit_min_mm[axis] = min_mm;
+        tracing::info!(
+            "[BbmAutomatikV2] Soft-limit min axis {} = {:?} mm",
+            axis,
+            min_mm
+        );
+        calibration::save(
+            &self.teach_positions,
+            &self.axis_soft_limit_max_mm,
+            &self.axis_soft_limit_min_mm,
+        );
+        self.emit_state();
+    }
+
+    /// Teach-in: capture the current axis position as the upper soft-limit.
+    pub fn teach_soft_limit_max(&mut self, axis: usize) {
+        if axis >= self.axes.len() {
+            return;
+        }
+        let pos_mm = (self.current_logical_mm(axis) * 1000.0).round() / 1000.0;
+        self.set_soft_limit_max(axis, Some(pos_mm));
+    }
+
+    /// Teach-in: capture the current axis position as the lower soft-limit.
+    pub fn teach_soft_limit_min(&mut self, axis: usize) {
+        if axis >= self.axes.len() {
+            return;
+        }
+        let pos_mm = (self.current_logical_mm(axis) * 1000.0).round() / 1000.0;
+        self.set_soft_limit_min(axis, Some(pos_mm));
     }
 
     /// Drive to a saved teach position. No-op if slot is empty.

@@ -89,6 +89,11 @@ export const stateEventDataSchema = z.object({
     z.number().nullable(),
     z.number().nullable(),
   ]),
+  axis_soft_limit_min: z.tuple([
+    z.number().nullable(),
+    z.number().nullable(),
+    z.number().nullable(),
+  ]),
   axis_alarm_active: z.tuple([
     z.boolean(),
     z.boolean(),

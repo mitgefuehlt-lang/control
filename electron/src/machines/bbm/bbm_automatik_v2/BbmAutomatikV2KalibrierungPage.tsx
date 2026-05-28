@@ -45,6 +45,50 @@ type AxisCalibrationProps = {
   axisName: string;
 };
 
+type SoftLimitRowProps = {
+  label: string;
+  value: number | null;
+  onTeach: () => void;
+  onClear: () => void;
+  disabled: boolean;
+};
+
+function SoftLimitRow({
+  label,
+  value,
+  onTeach,
+  onClear,
+  disabled,
+}: SoftLimitRowProps) {
+  const hasValue = value !== null;
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md border p-2">
+      <div className="flex flex-1 flex-col">
+        <span className="text-sm font-medium">{label}</span>
+        <span className="font-mono text-lg">
+          {hasValue ? `${roundToDecimals(value, 3)} mm` : "—"}
+        </span>
+      </div>
+      <div className="flex gap-2">
+        <TouchButton
+          variant="default"
+          icon="lu:Crosshair"
+          onClick={onTeach}
+          disabled={disabled}
+        >
+          Setzen
+        </TouchButton>
+        <TouchButton
+          variant="destructive"
+          icon="lu:Trash2"
+          onClick={onClear}
+          disabled={disabled || !hasValue}
+        />
+      </div>
+    </div>
+  );
+}
+
 function AxisCalibration({ axisIndex, axisName }: AxisCalibrationProps) {
   const {
     saveTeachPosition,
@@ -55,7 +99,11 @@ function AxisCalibration({ axisIndex, axisName }: AxisCalibrationProps) {
     getCustomPositionName,
     getAxisPositionMm,
     getAxisSoftLimitMax,
+    getAxisSoftLimitMin,
     setSoftLimitMax,
+    setSoftLimitMin,
+    teachSoftLimitMax,
+    teachSoftLimitMin,
     isDisabled,
   } = useBbmAutomatikV2();
 
@@ -65,28 +113,7 @@ function AxisCalibration({ axisIndex, axisName }: AxisCalibrationProps) {
 
   const currentPos = getAxisPositionMm(axisIndex) ?? 0;
   const softLimitMax = getAxisSoftLimitMax(axisIndex);
-  const [limitDraft, setLimitDraft] = useState<string>("");
-
-  // Reset the draft whenever the server's value changes so the input
-  // mirrors what's actually persisted.
-  React.useEffect(() => {
-    setLimitDraft(softLimitMax !== null ? String(softLimitMax) : "");
-  }, [softLimitMax]);
-
-  const commitLimit = () => {
-    const trimmed = limitDraft.trim();
-    if (trimmed === "") {
-      setSoftLimitMax(axisIndex, null);
-      return;
-    }
-    const v = parseFloat(trimmed.replace(",", "."));
-    if (Number.isFinite(v) && v > 0) {
-      setSoftLimitMax(axisIndex, v);
-    } else {
-      // Restore the displayed draft to the last good value
-      setLimitDraft(softLimitMax !== null ? String(softLimitMax) : "");
-    }
-  };
+  const softLimitMin = getAxisSoftLimitMin(axisIndex);
 
   const startRename = (slot: TeachSlot) => {
     setRenamingSlot(slot);
@@ -141,33 +168,23 @@ function AxisCalibration({ axisIndex, axisName }: AxisCalibrationProps) {
           </div>
         </div>
 
-        {/* Soft-limit max editor: leave empty for "no limit" */}
-        <div className="flex items-center justify-between gap-3">
-          <label className="text-sm font-medium">
-            Soft-Limit Max
-            <span className="ml-1 text-xs text-muted-foreground">
-              (leer = kein Limit)
-            </span>
-          </label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              step={0.5}
-              placeholder="kein Limit"
-              value={limitDraft}
-              onChange={(e) => setLimitDraft(e.target.value)}
-              onBlur={commitLimit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  (e.target as HTMLInputElement).blur();
-                }
-              }}
-              disabled={isDisabled}
-              className="w-32 text-right"
-            />
-            <span className="text-sm text-muted-foreground">mm</span>
-          </div>
+        {/* Soft-Limits: Min + Max. Beide via "Setzen" (Teach-in: aktuelle
+            Position übernehmen) oder "Löschen" (kein Limit). */}
+        <div className="flex flex-col gap-2">
+          <SoftLimitRow
+            label="Soft-Limit Min"
+            value={softLimitMin}
+            onTeach={() => teachSoftLimitMin(axisIndex)}
+            onClear={() => setSoftLimitMin(axisIndex, null)}
+            disabled={isDisabled}
+          />
+          <SoftLimitRow
+            label="Soft-Limit Max"
+            value={softLimitMax}
+            onTeach={() => teachSoftLimitMax(axisIndex)}
+            onClear={() => setSoftLimitMax(axisIndex, null)}
+            disabled={isDisabled}
+          />
         </div>
 
         {/* Slot rows */}

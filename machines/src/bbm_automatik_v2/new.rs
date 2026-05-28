@@ -221,6 +221,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 auto_sequence: None,
                 teach_positions: calibration_state.axes,
                 axis_soft_limit_max_mm: calibration_state.soft_limit_max_mm,
+                axis_soft_limit_min_mm: calibration_state.soft_limit_min_mm,
                 last_debug_log: None,
             };
 

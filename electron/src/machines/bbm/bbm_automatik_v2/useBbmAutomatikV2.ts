@@ -722,6 +722,62 @@ function useBbmAutomatik(
     });
   };
 
+  const setSoftLimitMinSchema = z.object({
+    action: z.literal("SetSoftLimitMin"),
+    value: z.object({
+      axis: z.number(),
+      min_mm: z.number().nullable(),
+    }),
+  });
+  const { request: requestSetSoftLimitMin } = useMachineMutation(
+    setSoftLimitMinSchema,
+  );
+
+  /** Set (or clear with `null`) the lower soft-limit for an axis. */
+  const setSoftLimitMin = (axis: number, min_mm: number | null) => {
+    requestSetSoftLimitMin({
+      machine_identification_unique,
+      data: {
+        action: "SetSoftLimitMin",
+        value: { axis, min_mm },
+      },
+    });
+  };
+
+  const teachSoftLimitSchema = z.object({
+    action: z.union([
+      z.literal("TeachSoftLimitMax"),
+      z.literal("TeachSoftLimitMin"),
+    ]),
+    value: z.object({
+      axis: z.number(),
+    }),
+  });
+  const { request: requestTeachSoftLimit } = useMachineMutation(
+    teachSoftLimitSchema,
+  );
+
+  /** Teach-in: capture current axis position as the upper soft-limit. */
+  const teachSoftLimitMax = (axis: number) => {
+    requestTeachSoftLimit({
+      machine_identification_unique,
+      data: { action: "TeachSoftLimitMax", value: { axis } },
+    });
+  };
+
+  /** Teach-in: capture current axis position as the lower soft-limit. */
+  const teachSoftLimitMin = (axis: number) => {
+    requestTeachSoftLimit({
+      machine_identification_unique,
+      data: { action: "TeachSoftLimitMin", value: { axis } },
+    });
+  };
+
+  /** Read the current lower soft-limit (null = no limit). */
+  const getAxisSoftLimitMin = (index: number): number | null => {
+    return stateOptimistic.value?.data.axis_soft_limit_min?.[index] ?? null;
+  };
+
   /** Get the saved mm value for a slot, or null if empty. */
   const getTeachPositionMm = (
     axis: number,
@@ -802,6 +858,10 @@ function useBbmAutomatik(
     getTeachPositionMm,
     getCustomPositionName,
     setSoftLimitMax,
+    setSoftLimitMin,
+    teachSoftLimitMax,
+    teachSoftLimitMin,
+    getAxisSoftLimitMin,
     TEACH_SLOT,
 
     // Alarm functions

@@ -21,6 +21,7 @@ pub struct StateEvent {
     pub axis_position_mode: [bool; 3],
     pub axis_homing_active: [bool; 3],
     pub axis_soft_limit_max: [Option<f32>; 3],
+    pub axis_soft_limit_min: [Option<f32>; 3],
     pub axis_alarm_active: [bool; 3],
     pub door_interlock_active: bool,
     pub auto_running: bool,
@@ -134,6 +135,15 @@ pub enum Mutation {
         axis: usize,
         max_mm: Option<f32>,
     },
+    /// Set (or clear) the lower soft-limit for an axis.
+    SetSoftLimitMin {
+        axis: usize,
+        min_mm: Option<f32>,
+    },
+    /// Teach-in: capture the current axis position as the upper soft-limit.
+    TeachSoftLimitMax { axis: usize },
+    /// Teach-in: capture the current axis position as the lower soft-limit.
+    TeachSoftLimitMin { axis: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -223,6 +233,11 @@ impl MachineApi for BbmAutomatikV2 {
             Mutation::SetSoftLimitMax { axis, max_mm } => {
                 self.set_soft_limit_max(axis, max_mm)
             }
+            Mutation::SetSoftLimitMin { axis, min_mm } => {
+                self.set_soft_limit_min(axis, min_mm)
+            }
+            Mutation::TeachSoftLimitMax { axis } => self.teach_soft_limit_max(axis),
+            Mutation::TeachSoftLimitMin { axis } => self.teach_soft_limit_min(axis),
         }
         Ok(())
     }
