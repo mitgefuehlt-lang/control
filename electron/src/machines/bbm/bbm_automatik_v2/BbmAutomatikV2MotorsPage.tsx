@@ -326,8 +326,8 @@ function AxisControl({
               resetPlacement="header"
               min={-500}
               max={softLimitMax ?? 500}
-              step={10}
-              renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
+              step={0.5}
+              renderValue={(v) => `${roundToDecimals(v, 1)} mm`}
               onChange={(pos) => setAxisValue(axisIndex, "position", pos)}
             />
           </Label>
@@ -341,8 +341,8 @@ function AxisControl({
               resetPlacement="header"
               min={0}
               max={softLimitMax ?? 200}
-              step={1}
-              renderValue={(v) => `${roundToDecimals(v, 0)} mm`}
+              step={0.5}
+              renderValue={(v) => `${roundToDecimals(v, 1)} mm`}
               onChange={(step) => setAxisValue(axisIndex, "step", step)}
             />
           </Label>

@@ -698,7 +698,11 @@ impl BbmAutomatikV2 {
             );
         }
 
-        let target_logical_pulses = (clamped_mm.round() * mechanics::PULSES_PER_MM) as i32;
+        // Round AFTER scaling to pulses so we keep sub-mm precision
+        // (43.5 mm * 20 pulses/mm = exactly 870 pulses). Rounding mm
+        // first would quantize the target to whole millimetres.
+        let target_logical_pulses =
+            (clamped_mm * mechanics::PULSES_PER_MM).round() as i32;
         let current_logical_pulses = self.current_logical_pulses(index);
         // Hardware target = logical + offset, computed in i64 to avoid any
         // i32/u32 ambiguity, then narrowed once we know it fits.
