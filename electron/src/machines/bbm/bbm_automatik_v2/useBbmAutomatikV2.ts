@@ -700,6 +700,28 @@ function useBbmAutomatik(
     });
   };
 
+  const setSoftLimitMaxSchema = z.object({
+    action: z.literal("SetSoftLimitMax"),
+    value: z.object({
+      axis: z.number(),
+      max_mm: z.number().nullable(),
+    }),
+  });
+  const { request: requestSetSoftLimitMax } = useMachineMutation(
+    setSoftLimitMaxSchema,
+  );
+
+  /** Set (or clear with `null`) the upper soft-limit for an axis. */
+  const setSoftLimitMax = (axis: number, max_mm: number | null) => {
+    requestSetSoftLimitMax({
+      machine_identification_unique,
+      data: {
+        action: "SetSoftLimitMax",
+        value: { axis, max_mm },
+      },
+    });
+  };
+
   /** Get the saved mm value for a slot, or null if empty. */
   const getTeachPositionMm = (
     axis: number,
@@ -779,6 +801,7 @@ function useBbmAutomatik(
     goToTeachPosition,
     getTeachPositionMm,
     getCustomPositionName,
+    setSoftLimitMax,
     TEACH_SLOT,
 
     // Alarm functions

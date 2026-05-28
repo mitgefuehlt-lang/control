@@ -127,6 +127,13 @@ pub enum Mutation {
         slot: TeachSlot,
         speed_mm_s: f32,
     },
+    /// Set (or clear) the upper soft-limit for an axis.
+    /// `max_mm: null` removes the limit; otherwise clamps moves to that
+    /// logical position. Persisted alongside teach positions.
+    SetSoftLimitMax {
+        axis: usize,
+        max_mm: Option<f32>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +220,9 @@ impl MachineApi for BbmAutomatikV2 {
                 slot,
                 speed_mm_s,
             } => self.goto_teach_position(axis, slot, speed_mm_s),
+            Mutation::SetSoftLimitMax { axis, max_mm } => {
+                self.set_soft_limit_max(axis, max_mm)
+            }
         }
         Ok(())
     }

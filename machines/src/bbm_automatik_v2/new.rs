@@ -182,6 +182,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
             ];
 
             let (sender, receiver) = smol::channel::unbounded();
+            let calibration_state = calibration::load();
             let mut machine = Self {
                 api_receiver: receiver,
                 api_sender: sender,
@@ -218,7 +219,8 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 axis_alarm_active: [false; 3],
                 door_interlock_active: false,
                 auto_sequence: None,
-                teach_positions: calibration::load(),
+                teach_positions: calibration_state.axes,
+                axis_soft_limit_max_mm: calibration_state.soft_limit_max_mm,
                 last_debug_log: None,
             };
 

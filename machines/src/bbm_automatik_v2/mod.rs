@@ -53,22 +53,35 @@ pub mod outputs {
     pub const LUEFTER: usize = 6; // Schaltschrank-Lüfter (DO7 = index 6)
 }
 
-/// Soft limits per axis in mm (0 = home position after homing)
-/// Values from Arduino BBMx22_Automatik_Code.ino v3.2
+/// Default soft-limit max position per axis (in mm). These are the
+/// initial values the machine boots with on a fresh install; the user
+/// can override per-axis at runtime via the calibration UI and the new
+/// values are persisted to disk.
 pub mod soft_limits {
     pub const MT_MAX_MM: f32 = 230.0;
     pub const SCHIEBER_MAX_MM: f32 = 53.0;
     pub const DRUECKER_MAX_MM: f32 = 107.0;
-    pub const MIN_MM: f32 = 0.0;
 
-    /// Get max position for axis in mm (None = no limit)
-    pub fn max_position_mm(axis: usize) -> Option<f32> {
+    /// Default max position per axis index. `None` means no limit. Used
+    /// to seed `axis_soft_limit_max_mm` on first machine init and as the
+    /// fallback when a persisted calibration file pre-dates this field.
+    pub fn default_max_position_mm(axis: usize) -> Option<f32> {
         match axis {
             super::axes::MT => Some(MT_MAX_MM),
             super::axes::SCHIEBER => Some(SCHIEBER_MAX_MM),
             super::axes::DRUECKER => Some(DRUECKER_MAX_MM),
             _ => None,
         }
+    }
+
+    /// Default array of soft-limit maxes for all 3 axes. Used as serde
+    /// default when loading a calibration file that lacks the field.
+    pub fn default_max_position_array() -> [Option<f32>; 3] {
+        [
+            default_max_position_mm(super::axes::MT),
+            default_max_position_mm(super::axes::SCHIEBER),
+            default_max_position_mm(super::axes::DRUECKER),
+        ]
     }
 }
 
@@ -203,16 +216,34 @@ pub enum TeachSlot {
 /// machines without that env var we fall back to the OS temp dir so tests
 /// don't litter `/var/lib/qitech`.
 pub mod calibration {
-    use super::AxisTeachPositions;
+    use super::{AxisTeachPositions, soft_limits};
     use serde::{Deserialize, Serialize};
     use std::path::PathBuf;
 
     const FILENAME: &str = "bbm-automatik-v2-calibration.json";
 
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct CalibrationFile {
+    /// Persisted calibration state. Loading is forward-compatible: a
+    /// file written before a field was added still deserialises and the
+    /// missing field falls back to the default array.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct CalibrationFile {
         #[serde(default)]
-        axes: [AxisTeachPositions; 3],
+        pub axes: [AxisTeachPositions; 3],
+        /// Per-axis upper soft limit in mm. `None` means no limit (user
+        /// drives until mechanical stop). Defaults from
+        /// [`soft_limits::default_max_position_array`] for files that
+        /// pre-date this field.
+        #[serde(default = "soft_limits::default_max_position_array")]
+        pub soft_limit_max_mm: [Option<f32>; 3],
+    }
+
+    impl Default for CalibrationFile {
+        fn default() -> Self {
+            Self {
+                axes: Default::default(),
+                soft_limit_max_mm: soft_limits::default_max_position_array(),
+            }
+        }
     }
 
     fn path() -> PathBuf {
@@ -226,7 +257,9 @@ pub mod calibration {
         }
     }
 
-    pub fn load() -> [AxisTeachPositions; 3] {
+    /// Load the persisted calibration. Returns the default-seeded
+    /// struct when no file exists or it can't be parsed.
+    pub fn load() -> CalibrationFile {
         let p = path();
         match std::fs::read_to_string(&p) {
             Ok(s) => match serde_json::from_str::<CalibrationFile>(&s) {
@@ -235,11 +268,11 @@ pub mod calibration {
                         "[BbmAutomatikV2] Loaded calibration from {}",
                         p.display()
                     );
-                    f.axes
+                    f
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "[BbmAutomatikV2] Calibration file at {} is corrupt ({}) - starting empty",
+                        "[BbmAutomatikV2] Calibration file at {} is corrupt ({}) - starting from defaults",
                         p.display(),
                         e
                     );
@@ -248,7 +281,7 @@ pub mod calibration {
             },
             Err(_) => {
                 tracing::info!(
-                    "[BbmAutomatikV2] No calibration file at {} - starting empty",
+                    "[BbmAutomatikV2] No calibration file at {} - starting from defaults",
                     p.display()
                 );
                 Default::default()
@@ -258,7 +291,10 @@ pub mod calibration {
 
     /// Atomically persist the calibration. Errors are logged, not propagated -
     /// the user can re-save and the in-memory state is still correct.
-    pub fn save(axes: &[AxisTeachPositions; 3]) {
+    pub fn save(
+        axes: &[AxisTeachPositions; 3],
+        soft_limit_max_mm: &[Option<f32>; 3],
+    ) {
         let p = path();
         if let Some(parent) = p.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
@@ -271,7 +307,10 @@ pub mod calibration {
             }
         }
 
-        let file = CalibrationFile { axes: axes.clone() };
+        let file = CalibrationFile {
+            axes: axes.clone(),
+            soft_limit_max_mm: *soft_limit_max_mm,
+        };
         let json = match serde_json::to_string_pretty(&file) {
             Ok(j) => j,
             Err(e) => {
@@ -417,6 +456,11 @@ pub struct BbmAutomatikV2 {
     // Calibration / teach-in positions per axis (persisted to disk)
     pub teach_positions: [AxisTeachPositions; 3],
 
+    /// Per-axis upper soft limit in mm. `None` means no limit. Enforced
+    /// only after homing and outside of a homing run. Editable from the
+    /// calibration UI and persisted alongside `teach_positions`.
+    pub axis_soft_limit_max_mm: [Option<f32>; 3],
+
     // Debug logging
     pub last_debug_log: Option<Instant>,
 }
@@ -460,11 +504,7 @@ impl BbmAutomatikV2 {
             axis_target_positions: self.axis_target_positions,
             axis_position_mode: self.axis_position_mode,
             axis_homing_active: homing_active,
-            axis_soft_limit_max: [
-                soft_limits::max_position_mm(0),
-                soft_limits::max_position_mm(1),
-                soft_limits::max_position_mm(2),
-            ],
+            axis_soft_limit_max: self.axis_soft_limit_max_mm,
             axis_alarm_active: self.axis_alarm_active,
             door_interlock_active: self.door_interlock_active,
             auto_running: self.auto_sequence.is_some(),
@@ -675,13 +715,13 @@ impl BbmAutomatikV2 {
             return;
         }
 
-        // Only the upper soft limit is enforced. Lower limit (MIN_MM) is
-        // intentionally not enforced so the user can drive into negative
-        // territory (calibration, recalibration, testing the lower end).
+        // Only the upper soft limit is enforced. There is no lower limit
+        // — the user drives into negative territory for calibration,
+        // recalibration, and lower-end mechanical tests.
         let enforce_max =
             self.axis_homed[index] && self.axis_homing_phase[index] == HomingPhase::Idle;
         let clamped_mm = if enforce_max {
-            match soft_limits::max_position_mm(index) {
+            match self.axis_soft_limit_max_mm[index] {
                 Some(max) => position_mm.min(max),
                 None => position_mm,
             }
@@ -842,7 +882,7 @@ impl BbmAutomatikV2 {
                 let enforce_max =
                     self.axis_homed[i] && self.axis_homing_phase[i] == HomingPhase::Idle;
                 if enforce_max {
-                    if let Some(max_mm) = soft_limits::max_position_mm(i) {
+                    if let Some(max_mm) = self.axis_soft_limit_max_mm[i] {
                         let current_mm = self.current_logical_mm(i);
                         if current_mm >= max_mm
                             && self.axis_target_speeds[i] > 0
@@ -1448,7 +1488,7 @@ impl BbmAutomatikV2 {
             slot,
             pos_mm
         );
-        calibration::save(&self.teach_positions);
+        calibration::save(&self.teach_positions, &self.axis_soft_limit_max_mm);
         self.emit_state();
     }
 
@@ -1465,7 +1505,7 @@ impl BbmAutomatikV2 {
             TeachSlot::Custom2 => t.custom2 = None,
         }
         tracing::info!("[BbmAutomatikV2] Cleared axis {} slot {:?}", axis, slot);
-        calibration::save(&self.teach_positions);
+        calibration::save(&self.teach_positions, &self.axis_soft_limit_max_mm);
         self.emit_state();
     }
 
@@ -1514,7 +1554,36 @@ impl BbmAutomatikV2 {
                 return;
             }
         }
-        calibration::save(&self.teach_positions);
+        calibration::save(&self.teach_positions, &self.axis_soft_limit_max_mm);
+        self.emit_state();
+    }
+
+    /// Set (or clear) the upper soft-limit for an axis. `None` removes
+    /// the limit; `Some(mm)` clamps subsequent moves to that position.
+    /// Persisted alongside teach positions.
+    pub fn set_soft_limit_max(&mut self, axis: usize, max_mm: Option<f32>) {
+        if axis >= self.axis_soft_limit_max_mm.len() {
+            return;
+        }
+        // Negative or zero limits are nonsensical (origin sits at 0).
+        // Reject silently so the UI can't brick the axis.
+        if let Some(v) = max_mm {
+            if !v.is_finite() || v <= 0.0 {
+                tracing::warn!(
+                    "[BbmAutomatikV2] Reject soft-limit axis {}: {:.3} mm (must be > 0)",
+                    axis,
+                    v
+                );
+                return;
+            }
+        }
+        self.axis_soft_limit_max_mm[axis] = max_mm;
+        tracing::info!(
+            "[BbmAutomatikV2] Soft-limit max axis {} = {:?} mm",
+            axis,
+            max_mm
+        );
+        calibration::save(&self.teach_positions, &self.axis_soft_limit_max_mm);
         self.emit_state();
     }
 

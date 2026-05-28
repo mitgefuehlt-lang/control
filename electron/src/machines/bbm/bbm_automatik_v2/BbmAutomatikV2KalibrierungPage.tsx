@@ -54,6 +54,8 @@ function AxisCalibration({ axisIndex, axisName }: AxisCalibrationProps) {
     getTeachPositionMm,
     getCustomPositionName,
     getAxisPositionMm,
+    getAxisSoftLimitMax,
+    setSoftLimitMax,
     isDisabled,
   } = useBbmAutomatikV2();
 
@@ -62,6 +64,29 @@ function AxisCalibration({ axisIndex, axisName }: AxisCalibrationProps) {
   const [renameDraft, setRenameDraft] = useState<string>("");
 
   const currentPos = getAxisPositionMm(axisIndex) ?? 0;
+  const softLimitMax = getAxisSoftLimitMax(axisIndex);
+  const [limitDraft, setLimitDraft] = useState<string>("");
+
+  // Reset the draft whenever the server's value changes so the input
+  // mirrors what's actually persisted.
+  React.useEffect(() => {
+    setLimitDraft(softLimitMax !== null ? String(softLimitMax) : "");
+  }, [softLimitMax]);
+
+  const commitLimit = () => {
+    const trimmed = limitDraft.trim();
+    if (trimmed === "") {
+      setSoftLimitMax(axisIndex, null);
+      return;
+    }
+    const v = parseFloat(trimmed.replace(",", "."));
+    if (Number.isFinite(v) && v > 0) {
+      setSoftLimitMax(axisIndex, v);
+    } else {
+      // Restore the displayed draft to the last good value
+      setLimitDraft(softLimitMax !== null ? String(softLimitMax) : "");
+    }
+  };
 
   const startRename = (slot: TeachSlot) => {
     setRenamingSlot(slot);
@@ -113,6 +138,35 @@ function AxisCalibration({ axisIndex, axisName }: AxisCalibrationProps) {
               className="w-24 text-right"
             />
             <span className="text-sm text-muted-foreground">mm/s</span>
+          </div>
+        </div>
+
+        {/* Soft-limit max editor: leave empty for "no limit" */}
+        <div className="flex items-center justify-between gap-3">
+          <label className="text-sm font-medium">
+            Soft-Limit Max
+            <span className="ml-1 text-xs text-muted-foreground">
+              (leer = kein Limit)
+            </span>
+          </label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={0}
+              step={0.5}
+              placeholder="kein Limit"
+              value={limitDraft}
+              onChange={(e) => setLimitDraft(e.target.value)}
+              onBlur={commitLimit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              disabled={isDisabled}
+              className="w-32 text-right"
+            />
+            <span className="text-sm text-muted-foreground">mm</span>
           </div>
         </div>
 
