@@ -40,9 +40,11 @@
 - Firewall: Port 3001 in `nixos/os/configuration.nix` geoeffnet; `enp2s0` (EtherCAT 10.10.10.0/24) und `tailscale0` sind ohnehin trusted.
 - Bekannte Schwaeche: ServeDir-Fallback liefert auch fuer falsche Asset-URLs (`/assets/nicht-da.js`) ein HTTP 200 mit `index.html` zurueck. Da der Memory-Router keine Deep-Links erzeugt, in der Praxis irrelevant. Bei Bedarf spaeter: Fallback nur fuer Pfade ohne Datei-Endung.
 - Latenz: Touch -> Motorbefehl ueber WLAN ~15-50 ms vs. ~5-10 ms lokal. Akzeptabel fuer Buttons/Aktoren; bei Jog-Buttons kann Loslassen-Latenz Ueberlauf erzeugen. **TODO:** Dead-Man-Logik im Backend (Motor stoppt wenn 200 ms kein "still pressed"-Signal kommt). Hardware-NotAus bleibt Pflicht.
-- **Cache-Falle:** Beim Deploy laedt der Server eine neue `index.html` mit gehashtem JS-Pfad aus. Wenn das Tablet waehrend des Reboots WLAN verliert, kann der SocketIO-Disconnect-Handler `window.location.reload()` verpassen. Symptom: alter UI-Code laeuft weiter und schickt veraltete Mutations. Loesung: Tablet hart refreshen (Tab schliessen + neu oeffnen).
+- **Cache (Stand 2026-05-28):** Server schickt jetzt `Cache-Control: no-store` global (siehe `server/src/rest/init.rs`). Grund: NixOS pinnt File-mtime auf 1970-01-01 fuer Reproducible Builds → ServeDir-`Last-Modified` ist konstant ueber alle Deploys → klassisches `no-cache, must-revalidate` antwortet immer mit 304 und der Browser behaelt die alte cached index.html mit alten Asset-Hashes. `no-store` zwingt jeden Request ans Netz. Tablet-Refresh nach Deploy reicht jetzt; der `?v=N`-Query-Trick ist nur noch fuer den **allerersten** Refresh nach Deploy von Code mit dem alten `no-cache`-Header noetig (wenn die alte index.html selbst noch im Browser-Cache haengt).
 
-## Negative Positionen (Stand 2026-05-27)
+## Negative Positionen (Stand 2026-05-27) — SUPERSEDED 2026-05-28
+> **Wichtig:** Der hier beschriebene zweigleisige Ansatz (TDC bei >=0, Speed-Mode + Software-Stop bei <0) ist ab Commit d7bdf8cd durch den **Virtual Zero Offset** ersetzt (siehe `Session 2026-05-28` unten). Die `axis_jog_*` Felder + der Software-Stop-Branch sind weg, `jog_relative` ist ein Einzeiler ueber `move_to_position_mm`. Section bleibt als Historie + zur Erklaerung der Hardware-Falle stehen.
+
 - **Anforderung:** User kann negativ jogen UND auf negative Absolutpositionen fahren, auch nach Homing (Kalibrierung, Lower-End-Tests).
 - **Hardware-Falle EL2522 Travel Distance Control (TDC):** `target_counter_value` ist u32, Hardware vergleicht `target vs counter` UNSIGNED. Negativer i32 als u32 = ~4,29 Mrd -> Hardware faehrt in falsche Richtung, oder wendet beim u32-Underflow (counter 0 -> 0xFFFFFFFF). Bestaetigt in Logs: `target=-120 pulses, freq=-200Hz commanded, pos steigt 146->346->546`.
 - **Loesung:** Zweigleisig.
@@ -2472,3 +2474,151 @@ Flag wird `true` am Ende von Homing-Phase 3 (`SettingZero`), wenn der Counter na
 - Stufe 1-3 (Vollstaendigkeit, Konsistenz, Architektur): keine TS-Aenderungen noetig - Feld ist intern, StateEvent unveraendert
 - Stufe 4 (Post-Commit): `git show --stat HEAD` zeigt nur die 2 zusammengehoerigen Rust-Dateien
 - Stufe 5 (Post-Deploy): `journalctl` zeigt erwarteten EtherCAT-Timeout → systemd restart → "Group in OP state" + "received machines[BbmAutomatikV2]", keine error/panic/closed channel
+
+---
+
+## Session 2026-05-28: Kalibrierungsseite + Virtual Zero Offset + Cache Hardening
+
+Sechs zusammenhaengende Arbeitsschritte am BbmAutomatikV2-Stack. Reihenfolge wie sie entstanden sind. Wichtigster architektonischer Punkt ist **Schritt 3** (Virtual Zero Offset) — der ersetzt den 2026-05-27-Workaround durch den Beckhoff-dokumentierten kanonischen Weg.
+
+### 1) Teach-in Kalibrierungsseite (Commit 29acf6db)
+
+**Anforderung:** Lea will pro Achse die Start- und Ziel-Position fuer den Kalibrierungs-/Auto-Prozess festlegen koennen, zusaetzlich 1-2 frei benennbare Custom-Slots (z.B. "Druckposition"). Werte sollen Reboots ueberleben. Lieber Teach-in (aktuelle Position via Button uebernehmen) statt Texteingabe — weniger Tippfehler, User verifiziert physikalisch.
+
+**Datenmodell:**
+```rust
+// machines/src/bbm_automatik_v2/mod.rs
+pub struct AxisTeachPositions {
+    pub start_mm: Option<f32>,
+    pub ziel_mm: Option<f32>,
+    pub custom1: Option<NamedTeachPosition>,
+    pub custom2: Option<NamedTeachPosition>,
+}
+pub struct NamedTeachPosition { pub name: String, pub position_mm: f32 }
+pub enum TeachSlot { Start, Ziel, Custom1, Custom2 }
+```
+
+Pro Achse `[AxisTeachPositions; 3]`. Custom1/Custom2 bekommen beim ersten Speichern einen Default-Namen ("Position 1" / "Position 2"); per `RenameCustomPosition` umbenennbar (max 32 Zeichen, nicht-leer, getrimmt).
+
+**Mutations:** `SaveTeachPosition`, `ClearTeachPosition`, `RenameCustomPosition`, `GoToTeachPosition`. Letztere ruft intern `move_to_position_mm` — d.h. profitiert automatisch vom Virtual-Offset.
+
+**Persistenz:**
+- Datei: `$STATE_DIRECTORY/bbm-automatik-v2-calibration.json` (systemd setzt `STATE_DIRECTORY` via `StateDirectory=qitech`)
+- Atomic write: tmp + rename
+- Forward-compatible: alle neuen Felder via `#[serde(default)]` — alte JSONs deserialisieren ohne Bruch
+- NixOS-Modul (`nixos/modules/qitech.nix`) bekommt:
+  ```nix
+  StateDirectory = "qitech";
+  StateDirectoryMode = "0750";
+  ```
+  Ohne das schreibt der Service unter `ProtectSystem=strict` nirgendwo hin.
+
+**UI:** Neue Seite `BbmAutomatikV2KalibrierungPage.tsx`, Topbar-Tab zwischen Motoren und Aktoren. Pro Achse: Live-Position-Anzeige, Anfahr-Geschwindigkeit (default 10 mm/s, siehe Schritt 6), 4 Slot-Rows mit Setzen/Anfahren/Loeschen + Rename-Inline-Edit fuer Custom-Slots.
+
+### 2) Browser-Tablet-Cache: zwei Anlaeufe (Commits 5d643e4c, aa89f7c0)
+
+**Symptom:** Nach Deploy zeigt das Tablet weiter alte UI-Version, auch nach App schliessen + neu oeffnen.
+
+**Erster Versuch (5d643e4c):** `Cache-Control: no-cache, must-revalidate` per `tower_http::set_header::SetResponseHeaderLayer` global auf den Axum-Router. Idee: Browser darf cachen, MUSS aber revalidieren.
+
+**Funktioniert nicht — Root Cause:** **NixOS pinnt jede File-mtime auf 1970-01-01 fuer Reproducible Builds.** Tower-http `ServeDir` setzt `Last-Modified` aus mtime → konstant ueber alle Deploys. Revalidierung schickt `If-Modified-Since: 1970-01-01` → Server antwortet 304 → Browser nimmt cached index.html mit alten Asset-Hashes. Cache-Busting via Hashed Asset-Namen funktioniert nur wenn die index.html selbst neu geladen wird.
+
+**Loesung (aa89f7c0):** Header auf `Cache-Control: no-store` umgestellt. Verbietet jegliches Caching, jeder Request geht ans Netz. Asset-Bundles sind unter 1 MB → Tablet-LAN-Latenz vernachlaessigbar.
+
+**Gilt fuer alle Routes** (API + /assets + /). Akzeptabel weil:
+- POST-Mutations sind nicht-cacheable per Definition
+- SocketIO ist long-polling/WebSocket, kein HTTP-Cache
+- Metrics waeren cachebar, aber `no-store` schadet nicht
+
+### 3) Virtual Zero Offset fuer EL2522 (Commit d7bdf8cd) — DER eigentliche Fix
+
+**Anforderung:** Praeziser Schrittbetrieb in BEIDE Richtungen, auch unter logischer Null. Vorheriger Workaround (Speed-Mode + Software-Stop bei `target<0 || current<0`) hatte einen unvermeidbaren Bremsweg-Ueberlauf: bei 50 mm/s + 100 mm/s^2 Decel = `v^2/(2a) = 12,5 mm`. User-Wahrnehmung: JOG +10mm fuehrte zu 22mm tatsaechlichem Weg → nicht akzeptabel fuer Kalibrierung.
+
+**Recherche-Ergebnis (Beckhoff EL252x PDF v4.3 §6.4.3, §6.5.1.2):** Der **kanonische, von Beckhoff dokumentierte Weg** ist: Hardware-Counter initial auf einen positiven Offset setzen (z.B. `0x40000000` oder `1_000_000`), logical-Position = `hw_counter - OFFSET` interpretieren. Damit bleibt der hw-Counter immer im positiven u32-Band — TDC's unsigned compare picked die physikalisch korrekte Richtung in beide Richtungen, und der Hardware-Brems-Algorithmus erreicht die Zielposition exakt.
+
+TwinCAT NC macht es so: NC besitzt die signed-i32 Position intern, schreibt nur unsigned `Target counter value` an die Klemme + setzt die Richtung via `AutomaticDirection`/`Forward`/`Reverse` Bit.
+
+**Implementierung:**
+- `pub const POSITION_OFFSET_PULSES: u32 = 1_000_000` (50_000 mm Headroom — fuer lineare Achsen mit Reichweite 1m massiv ausreichend)
+- Neues Feld `pub axis_position_offset: [u32; 3]` auf `BbmAutomatikV2`
+- Bei Machine-Init (`new.rs`): Eager `axis_position_offset[i] = OFFSET` + PDO-Write `set_counter=true, set_counter_value=OFFSET`. Hardware uebernimmt im naechsten Zyklus.
+- Bei Homing Phase 3 (SettingZero): wieder `set_counter_value = OFFSET` (statt 0). Logical 0 ist jetzt am physischen Endschalter+Retract.
+- Read-Helpers: `current_logical_pulses(axis) -> i32 = (hw.wrapping_sub(offset)) as i32`, `current_logical_mm(axis) -> f32`
+- Write-TDC: `target_hw = (logical_target as i64 + offset as i64) as u32`
+- Auto-Clear: in `update_hardware_monitor` ein generischer Block, der set_counter abschaltet sobald `set_counter_done` kommt — abgedeckt fuer Init UND Homing Phase 3 ohne separaten State-Machine-Aufwand
+
+**Was rausfliegt:**
+- `axis_jog_start_pulses`, `axis_jog_target_delta`, `axis_jog_active` Struct-Felder
+- Die "wenn target<0 oder current<0 → jog_relative()-Fallback"-Dispatch-Logik
+- Speed-Mode-Software-Stop-Branch in `update_hardware_monitor`
+- `jog_relative` schrumpft auf:
+  ```rust
+  let target_mm = self.current_logical_mm(index) + delta_mm;
+  self.move_to_position_mm(index, target_mm, speed_mm_s);
+  ```
+
+**Praezisions-Eigenschaft:** Step-Loss-Detection in `update_hardware_monitor` arbeitet jetzt komplett im logical-pulse-Space (apples-to-apples Vergleich `actual_logical vs target_logical`).
+
+**Bekannte Restschwaeche:** Beim Homing Phase-3-Eintritt setzen wir `axis_position_offset` eager auf OFFSET — die HW braucht aber 1-2 Zyklen zum Anwenden des set_counter. Waehrend der Wartezeit zeigt `current_logical_mm` einen Sprung (z.B. -298mm) bis die HW den neuen Counter rausgibt. Akzeptabel — UI-Frame-Flicker bei 30 FPS.
+
+### 4) Sub-mm Praezision bei MoveToPosition (Commit 03f0bc9d)
+
+**Symptom:** 43,5 mm eingegeben → Achse faehrt auf 44,0 mm.
+
+**Root Cause (zweischichtig):**
+- Backend `move_to_position_mm`: `let target_pulses = (clamped_mm.round() * PULSES_PER_MM) as i32;` — **erst mm runden**, dann zu Pulses skalieren. 43.5 → `.round()` → 44 → ×20 = 880 Pulses → 44 mm.
+- Frontend EditValue: `step={10}` zwingt Eingabe auf 10er-Inkremente; `roundToDecimals(v, 0)` zeigt sowieso nur ganze mm.
+
+**Fix:**
+- Backend: `(clamped_mm * PULSES_PER_MM).round() as i32` — Pulses runden (eine Pulse-Aufloesung = 0.05 mm).
+- Frontend Sollpos. + Schritt: `step={0.5}` + `roundToDecimals(v, 1)`. Wenn feiner gebraucht: step koennen wir auf 0.1 oder 0.05 senken — siehe Hardware-Aufloesung 20 Pulses/mm.
+
+### 5) Per-Axis Soft-Limits min + max, editierbar + persistent (Commits 05cd65ad, aa89f7c0)
+
+**Anforderung:** Soft-Limits sollen auf der Kalibrierungsseite einstellbar sein — und nicht nur Max, sondern auch Min. Einstellen via "Setzen"-Button (aktuelle Position als Limit uebernehmen), nicht via Tippen.
+
+**Backend:**
+- Hardcoded Konstanten (`MT_MAX_MM=230, SCHIEBER_MAX_MM=53, DRUECKER_MAX_MM=107`) bleiben als **Seed-Defaults** fuer frische Installationen; live verschieben sich die Werte in `axis_soft_limit_max_mm: [Option<f32>; 3]` + `axis_soft_limit_min_mm: [Option<f32>; 3]` auf der Struct.
+- `MIN_MM=0` Konstante geloescht — Min ist standardmaessig `None` (kein Limit), damit User negativ kalibrieren koennen.
+- Persistent in derselben Kalibrierungs-JSON; alte Files ohne die Felder fallen via `#[serde(default = "...")]` auf die Defaults zurueck.
+- 4 neue Mutations: `SetSoftLimitMax`, `SetSoftLimitMin`, `TeachSoftLimitMax`, `TeachSoftLimitMin`. Die Set-Variante akzeptiert `Option<f32>` (`null` loescht), die Teach-Variante uebernimmt die aktuelle Achsposition.
+- Validierung: neuer Wert wird abgelehnt wenn er min >= max bricht.
+- Soft-Limit-Enforcement: `move_to_position_mm` clampt nach BEIDEN Bounds (jeweils nur wenn `Some`), nur nach Homing UND ausserhalb aktiver Homing-Phase. `update_hardware_monitor` stoppt Speed-Mode-Drives die ueber/unter ein Limit fahren wuerden.
+
+**UI:** Pro Achse zwei Soft-Limit-Zeilen ("Soft-Limit Min" / "Soft-Limit Max") mit aktueller Anzeige (oder "—") + Setzen-Button (Teach-in) + Loeschen-Button (Trash-Icon). UX gespiegelt zu den Teach-Positions-Rows.
+
+### 6) Default Anfahr-Geschwindigkeit Kalibrierung auf 10 mm/s (Commit 9fd33c70)
+
+Vorher 50 mm/s — gefaehrlich, weil Kalibrierungs-Moves typischerweise gegen noch-nicht-kalibrierte Soft-Limits laufen und im Worst Case in mechanische Anschlaege. Auf 10 mm/s (= Default der Motoren-Seite) gesenkt. User kann per Session hochsetzen, aber bewusst.
+
+### Geaenderte Dateien (komplette Sitzung)
+
+| Datei | Zweck |
+|-------|-------|
+| `machines/src/bbm_automatik_v2/mod.rs` | Teach-Strukturen, Calibration-Modul, Virtual-Offset, Soft-Limit-Felder + -Mutations-Methoden, sub-mm Fix |
+| `machines/src/bbm_automatik_v2/api.rs` | 8 neue Mutation-Varianten, StateEvent erweitert um teach_positions + axis_soft_limit_min |
+| `machines/src/bbm_automatik_v2/new.rs` | calibration::load + axis_position_offset Init + set_counter PDO-Init pro Achse |
+| `electron/src/machines/bbm/bbm_automatik_v2/bbmAutomatikV2Namespace.ts` | Zod-Schemas: AxisTeachPositions, NamedTeachPosition, TeachSlot, axis_soft_limit_min |
+| `electron/src/machines/bbm/bbm_automatik_v2/useBbmAutomatikV2.ts` | 8 neue Mutation-Hooks + Helpers (getTeachPositionMm, getCustomPositionName, getAxisSoftLimitMin) |
+| `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2KalibrierungPage.tsx` | Neue Seite |
+| `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2Page.tsx` | Topbar-Tab "Kalibrierung" |
+| `electron/src/machines/bbm/bbm_automatik_v2/BbmAutomatikV2MotorsPage.tsx` | Sollpos/Schritt step=0.5 + 1 Dezimal-Display |
+| `electron/src/routes/routes.tsx` | Neue Kalibrierungs-Route |
+| `nixos/modules/qitech.nix` | `StateDirectory=qitech` damit unter ProtectSystem=strict geschrieben werden kann |
+| `server/Cargo.toml` | tower-http feature `set-header` |
+| `server/src/rest/init.rs` | `Cache-Control: no-store` Header-Layer |
+
+### Bewusste Scope-Grenzen
+
+- **Anfahr-Geschwindigkeit pro Slot:** Aktuell global pro Achse. Falls einzelne Positionen mit anderer Speed angefahren werden sollen (z.B. langsam an Min, schnell an Ziel), Speed pro Slot mitspeichern.
+- **Mehr als 2 Custom-Slots:** Aktuell hart auf 2. Falls eine Achse 3+ Stops braucht (z.B. mehrstufiger Drueck-Vorgang), Datenmodell aufweichen zu `Vec<NamedTeachPosition>` oder weitere Custom-Felder.
+- **Soft-Limit Validierung:** Backend lehnt nur "min >= max"-Verstoesse ab. Wir koennten auch erzwingen dass die saved Teach-Positionen innerhalb der Limits liegen (Cleanup beim Limit-Aendern). Aktuell wuerde ein Anfahren via `move_to_position_mm` die Position einfach clampen.
+- **Cache `no-store` global:** Falls API-Performance kritisch wird, kann der Layer auf den ServeDir-Fallback beschraenkt werden (per-route Layer statt globaler Router-Layer).
+
+### Validierung
+
+Stage 1 (Vollstaendigkeit): jeder Rust-Mutation-Variante entspricht ein TS-Schema + Hook-Funktion. Alle in jeweils einem Commit zusammen.
+Stage 2 (Konsistenz): Feld-fuer-Feld Rust↔Zod abgeglichen — Tuple-Groessen [_;3], `Option<f32>` ↔ `z.number().nullable()`, Enum-Varianten als Strings ("Start"/"Ziel"/"Custom1"/"Custom2").
+Stage 3 (Architektur): keine neuen Threads/Channels, kein `process::exit`, kein `Box::leak`. File-I/O laeuft synchron in der Mutation-Handler-Lock-Zone — JSON ist <2KB, Write <1ms, akzeptabel weil Mutations selten (User-Klicks).
+Stage 4 (Post-Commit): pro Commit `git diff HEAD~1 --name-only` — Rust und TS immer beide drin wenn beide betroffen.
+Stage 5 (Post-Deploy): `journalctl -u qitech-control-server --since '60 seconds ago'` zeigt `Group in OP state` + `Loaded calibration from /var/lib/qitech/bbm-automatik-v2-calibration.json` + keine `error/panic/closed channel`. `curl -sI http://localhost:3001/ | grep cache-control` bestaetigt `no-store`.
