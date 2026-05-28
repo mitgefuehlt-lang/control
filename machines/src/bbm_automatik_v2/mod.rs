@@ -299,6 +299,26 @@ pub mod calibration {
     }
 }
 
+/// Virtual zero offset for the EL2522 hardware position counter.
+///
+/// The EL2522 stores its position counter as a `u32` and Travel Distance
+/// Control compares `target_counter_value` vs the live counter UNSIGNED.
+/// To drive to logically negative positions we initialise the hardware
+/// counter to this offset; logical position is then
+/// `hw_counter - axis_position_offset[i]` (interpreted i32). With both
+/// values comfortably in the lower half of u32, the unsigned compare
+/// picks the physically correct direction every time and TDC brakes
+/// hardware-precisely in both directions.
+///
+/// This is the canonical pattern Beckhoff documents in the EL252x
+/// manual (§6.4.3 "Connection of the EL2522 in the NC", §6.5.1.2 "Travel
+/// Distance Control") — TwinCAT NC owns the signed logical position
+/// internally and writes only positive u32 values to the terminal.
+///
+/// 1_000_000 pulses at 20 pulses/mm = 50_000 mm headroom in either
+/// direction, vastly more than any physical axis on this machine.
+pub const POSITION_OFFSET_PULSES: u32 = 1_000_000;
+
 /// Mechanical constants for the linear axes
 pub mod mechanics {
     /// Motor pulses per revolution (default stepper setting)
@@ -373,23 +393,16 @@ pub struct BbmAutomatikV2 {
 
     // Homing state
     pub axis_homing_phase: [HomingPhase; 3],
-    pub axis_homing_retract_target: [i32; 3],
+    pub axis_homing_retract_target: [u32; 3],
     /// true once homing Phase 3 (SettingZero) has completed for this axis.
-    /// Soft limits are only enforced after this flag is set, because before
-    /// homing the position counter is arbitrary and would block negative jog/home moves.
+    /// Soft limits are only enforced after this flag is set.
     pub axis_homed: [bool; 3],
 
-    // Relative-jog state. The +/- JOG buttons use speed mode (frequency
-    // value with sign for direction) and stop in software once the counter
-    // has moved by the requested delta. This avoids the EL2522 u32
-    // wraparound that bites Travel Distance Control when the target ends
-    // up below 0 before homing.
-    /// Hardware counter value when the jog was started.
-    pub axis_jog_start_pulses: [u32; 3],
-    /// Signed pulses we want to travel from the start (negative = backwards).
-    pub axis_jog_target_delta: [i32; 3],
-    /// true while a relative-jog move is in progress.
-    pub axis_jog_active: [bool; 3],
+    /// Virtual zero offset per axis (see [`POSITION_OFFSET_PULSES`]).
+    /// Initialised to `POSITION_OFFSET_PULSES` at machine construction so
+    /// negative logical jogs work even before homing; reapplied on Homing
+    /// Phase 3 so logical 0 coincides with the physical home position.
+    pub axis_position_offset: [u32; 3],
 
     // Driver alarm state (CL75t alarm pins)
     /// true = alarm active (axis stopped), per axis
@@ -471,16 +484,31 @@ impl BbmAutomatikV2 {
             input_states[i] = di.get_value().unwrap_or(false);
         }
 
-        // Read axis positions from PTO feedback (interpret u32 as i32 for negative positions)
+        // Read axis positions in logical pulses (signed, hw counter minus offset)
         let mut positions = [0i32; 3];
-        for (i, axis) in self.axes.iter().enumerate() {
-            positions[i] = axis.get_position() as i32;
+        for i in 0..self.axes.len() {
+            positions[i] = self.current_logical_pulses(i);
         }
 
         LiveValuesEvent {
             input_states,
             axis_positions: positions,
         }
+    }
+
+    /// Current axis position in logical pulses (signed). With the virtual
+    /// zero offset applied this returns the actual logical position; if
+    /// the offset hasn't been applied yet (offset == 0) the raw counter
+    /// is returned reinterpreted as i32.
+    pub fn current_logical_pulses(&self, axis: usize) -> i32 {
+        self.axes[axis]
+            .get_position()
+            .wrapping_sub(self.axis_position_offset[axis]) as i32
+    }
+
+    /// Current axis position in mm (logical, signed).
+    pub fn current_logical_mm(&self, axis: usize) -> f32 {
+        self.current_logical_pulses(axis) as f32 / mechanics::PULSES_PER_MM
     }
 
     /// Emit state event to UI
@@ -530,7 +558,6 @@ impl BbmAutomatikV2 {
                 self.axis_homing_phase[i] = HomingPhase::Idle;
                 tracing::info!("[BbmAutomatikV2] Axis {} homing cancelled by stop_all", i);
             }
-            self.axis_jog_active[i] = false;
             self.axis_speeds[i] = 0;
             self.axis_target_speeds[i] = 0;
             self.axis_position_mode[i] = false;
@@ -553,7 +580,6 @@ impl BbmAutomatikV2 {
                 self.axis_homing_phase[index] = HomingPhase::Idle;
                 tracing::info!("[BbmAutomatikV2] Axis {} homing cancelled by stop", index);
             }
-            self.axis_jog_active[index] = false;
             self.axis_speeds[index] = 0;
             self.axis_target_speeds[index] = 0;
             self.axis_position_mode[index] = false;
@@ -637,14 +663,13 @@ impl BbmAutomatikV2 {
         }
     }
 
-    /// Move to a target position in mm using hardware Travel Distance Control
-    /// Hardware ramps up, brakes, and stops exactly at target.
-    ///
-    /// Travel Distance Control on the EL2522 uses unsigned counter compare
-    /// to pick the direction. That means it only works correctly when both
-    /// the current and target counter values are non-negative. For any move
-    /// that would land below 0, we fall back to the same speed-mode +
-    /// software-stop mechanism that `jog_relative` uses.
+    /// Move to a logical target position in mm using hardware Travel
+    /// Distance Control. The hardware ramps up, brakes, and stops
+    /// hardware-precisely at the target in BOTH directions thanks to the
+    /// virtual zero offset (see [`POSITION_OFFSET_PULSES`]): logical
+    /// targets are translated to `logical + offset` in u32 hardware
+    /// space, so the EL2522's unsigned compare always picks the
+    /// physically correct direction.
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
         if index >= self.axes.len() {
             return;
@@ -673,121 +698,95 @@ impl BbmAutomatikV2 {
             );
         }
 
-        let target_pulses = (clamped_mm.round() * mechanics::PULSES_PER_MM) as i32;
-        let current_pulses = self.axes[index].get_position() as i32;
-
-        // If either side of the move sits in negative-counter territory,
-        // delegate to the speed-mode delta path which handles u32 wraparound
-        // correctly. The EL2522 Travel Distance Control mode would otherwise
-        // pick the wrong direction (huge unsigned vs current).
-        if target_pulses < 0 || current_pulses < 0 {
-            let delta_mm = clamped_mm
-                - (current_pulses as f32 / mechanics::PULSES_PER_MM);
-            self.jog_relative(index, delta_mm, speed_mm_s);
-            return;
-        }
-
+        let target_logical_pulses = (clamped_mm.round() * mechanics::PULSES_PER_MM) as i32;
+        let current_logical_pulses = self.current_logical_pulses(index);
+        // Hardware target = logical + offset, computed in i64 to avoid any
+        // i32/u32 ambiguity, then narrowed once we know it fits.
+        let target_hw_u32 = (target_logical_pulses as i64
+            + self.axis_position_offset[index] as i64) as u32;
         let speed_hz = mechanics::mm_per_s_to_hz(speed_mm_s.abs());
 
-        // Determine direction
-        let direction = if target_pulses > current_pulses {
+        // Direction in logical space (just for UI sign on axis_speeds).
+        let direction = if target_logical_pulses >= current_logical_pulses {
             1
         } else {
             -1
         };
 
-        // Position mode activate
-        self.axis_target_positions[index] = target_pulses;
+        // Activate position mode and remember the logical target so step
+        // loss detection can later compare apples to apples.
+        self.axis_target_positions[index] = target_logical_pulses;
         self.axis_position_mode[index] = true;
         // Ignore select_end_counter for 5 cycles (~3.5ms at 700µs cycle)
-        // so hardware has time to process new go_counter and clear stale signal
+        // so hardware has time to process the new go_counter and clear
+        // the stale "target reached" signal from the previous move.
         self.axis_position_ignore_cycles[index] = 5;
 
-        // Hardware output: go_counter + target position + speed
-        // In Travel Distance Control mode, the EL2522 hardware automatically
-        // determines direction by comparing target_counter_value vs current position.
-        // frequency_value must be POSITIVE (magnitude only) - sign is NOT used for direction.
+        // Hardware output: go_counter + target position + speed magnitude.
+        // In Travel Distance Control mode the EL2522 picks direction from
+        // the unsigned compare target_counter_value vs counter. With the
+        // virtual offset applied, both values stay comfortably positive
+        // and direction is always physically correct. frequency_value is
+        // magnitude only — the sign is NOT used for direction in TDC.
         let mut output = self.axes[index].get_output();
         output.go_counter = true;
         output.disble_ramp = false;
         output.frequency_value = speed_hz;
-        output.target_counter_value = target_pulses as u32;
+        output.target_counter_value = target_hw_u32;
         self.axes[index].set_output(output);
 
-        // Sync software state (keep sign for UI display)
+        // Sync software state (signed speed for UI direction indicator).
         self.axis_target_speeds[index] = speed_hz * direction;
         self.axis_speeds[index] = speed_hz * direction;
 
         self.emit_state();
         tracing::info!(
-            "[BbmAutomatikV2] Axis {} moving to {:.0} mm ({} pulses) at {:.1} mm/s",
+            "[BbmAutomatikV2] Axis {} moving to {:.3} mm ({} logical pulses, hw target {}) at {:.1} mm/s",
             index,
-            clamped_mm.round(),
-            target_pulses,
+            clamped_mm,
+            target_logical_pulses,
+            target_hw_u32,
             speed_mm_s
         );
     }
 
-    /// Relative jog: drive `delta_mm` from current position at `speed_mm_s`.
-    /// Uses speed mode (signed frequency for direction) and stops in software
-    /// once the hardware counter has moved by the requested delta. Use this
-    /// for the +/- JOG buttons; FAHRE still uses move_to_position_mm.
+    /// Relative jog by `delta_mm`. Now a thin wrapper around
+    /// [`Self::move_to_position_mm`] — with the virtual zero offset in
+    /// place, TDC handles both directions hardware-precisely. Used by
+    /// the +/- JOG buttons.
     pub fn jog_relative(&mut self, index: usize, delta_mm: f32, speed_mm_s: f32) {
         if index >= self.axes.len() {
             return;
         }
-
-        // After homing, only the upper soft limit clamps the move. MIN_MM
-        // is intentionally not enforced - user wants to drive negative for
-        // calibration / recalibration / testing the lower mechanical end.
-        let enforce_max =
-            self.axis_homed[index] && self.axis_homing_phase[index] == HomingPhase::Idle;
-        let effective_delta_mm = if enforce_max {
-            let current_mm =
-                self.axes[index].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
-            let max_mm = soft_limits::max_position_mm(index).unwrap_or(f32::INFINITY);
-            let target_mm = (current_mm + delta_mm).min(max_mm);
-            target_mm - current_mm
-        } else {
-            delta_mm
-        };
-
-        if effective_delta_mm.abs() < 0.01 {
-            tracing::warn!(
-                "[BbmAutomatikV2] Axis {} jog_relative {:.2} mm dropped (soft limit / zero delta)",
-                index,
-                delta_mm
-            );
-            return;
-        }
-
-        let delta_pulses = (effective_delta_mm.round() * mechanics::PULSES_PER_MM) as i32;
-        let direction = if delta_pulses >= 0 { 1 } else { -1 };
-        let speed_hz_signed = mechanics::mm_per_s_to_hz(speed_mm_s.abs()) * direction;
-
-        self.axis_jog_start_pulses[index] = self.axes[index].get_position();
-        self.axis_jog_target_delta[index] = delta_pulses;
-        self.axis_jog_active[index] = true;
-        self.axis_position_mode[index] = false;
-        self.axis_target_speeds[index] = speed_hz_signed;
-
-        self.emit_state();
-        tracing::info!(
-            "[BbmAutomatikV2] Axis {} jog relative {:+.1} mm at {:.1} mm/s ({} pulses, {} Hz)",
-            index,
-            effective_delta_mm,
-            speed_mm_s,
-            delta_pulses,
-            speed_hz_signed
-        );
+        let target_mm = self.current_logical_mm(index) + delta_mm;
+        self.move_to_position_mm(index, target_mm, speed_mm_s);
     }
 
-    /// Hardware ramp monitor: watches hardware status, does not set speeds
-    /// Replaces the old update_software_ramp completely
+    /// Hardware ramp monitor: watches the EL2522 status flags and pushes
+    /// frequency setpoints to the hardware. Two modes:
+    ///
+    /// - **Position mode** (TDC): wait for `select_end_counter` to flag
+    ///   "target reached", then clear `go_counter` and log step-loss if
+    ///   actual deviated from target.
+    /// - **Speed mode**: used by homing (and by anything else writing
+    ///   `axis_target_speeds` directly). Enforces the upper soft limit
+    ///   when homed, then forwards the target frequency to hardware.
     pub fn update_hardware_monitor(&mut self) -> bool {
         let mut changed = false;
         for i in 0..self.axis_speeds.len() {
             let input = self.axes[i].get_input();
+
+            // Auto-clear a pending set_counter once hardware confirms.
+            // Both machine init (virtual-zero offset write) and homing
+            // Phase 3 raise set_counter; this single path turns it back
+            // off so the EL2522 doesn't keep clamping the counter to the
+            // set value forever.
+            if input.set_counter_done {
+                let output = self.axes[i].get_output();
+                if output.set_counter {
+                    self.axes[i].clear_set_counter();
+                }
+            }
 
             // ====== POSITION MODE: Target detection ======
             if self.axis_position_mode[i] {
@@ -807,7 +806,7 @@ impl BbmAutomatikV2 {
                     self.axes[i].set_output(output);
 
                     changed = true;
-                    let actual_pos = self.axes[i].get_position() as i32;
+                    let actual_pos = self.current_logical_pulses(i);
                     let target_pos = self.axis_target_positions[i];
                     let deviation = (actual_pos - target_pos).abs();
                     if deviation > 2 {
@@ -831,49 +830,19 @@ impl BbmAutomatikV2 {
                 }
             }
 
-            // ====== JOG MODE: Send speed directly to hardware ======
+            // ====== SPEED MODE: Send target frequency to hardware ======
             if !self.axis_position_mode[i] {
-                // Relative-jog stop: once the counter has moved by the
-                // requested signed delta, zero the target speed so the
-                // ramp brakes the axis to a stop. wrapping_sub handles
-                // u32 underflow correctly: counter < start means a
-                // negative i32 delta.
-                if self.axis_jog_active[i] {
-                    let travelled = self.axes[i]
-                        .get_position()
-                        .wrapping_sub(self.axis_jog_start_pulses[i])
-                        as i32;
-                    let target = self.axis_jog_target_delta[i];
-                    let reached = if target > 0 {
-                        travelled >= target
-                    } else if target < 0 {
-                        travelled <= target
-                    } else {
-                        true
-                    };
-                    if reached {
-                        self.axis_jog_active[i] = false;
-                        self.axis_target_speeds[i] = 0;
-                        tracing::info!(
-                            "[BbmAutomatikV2] Axis {} jog reached delta (travelled {} pulses)",
-                            i,
-                            travelled
-                        );
-                    }
-                }
-
                 // Soft upper limit only applies once axis is homed AND not
                 // currently homing. Lower limit is intentionally not
-                // enforced - user wants negative jog for calibration etc.
+                // enforced — user wants negative travel for calibration.
                 let enforce_max =
                     self.axis_homed[i] && self.axis_homing_phase[i] == HomingPhase::Idle;
                 if enforce_max {
                     if let Some(max_mm) = soft_limits::max_position_mm(i) {
-                        let current_mm =
-                            self.axes[i].get_position() as i32 as f32 / mechanics::PULSES_PER_MM;
-                        let target = self.axis_target_speeds[i];
-
-                        if current_mm >= max_mm && target > 0 && self.axis_target_speeds[i] != 0 {
+                        let current_mm = self.current_logical_mm(i);
+                        if current_mm >= max_mm
+                            && self.axis_target_speeds[i] > 0
+                        {
                             self.axis_target_speeds[i] = 0;
                             tracing::warn!(
                                 "[BbmAutomatikV2] Axis {} soft max reached at {:.1} mm - stopping",
@@ -1096,11 +1065,15 @@ impl BbmAutomatikV2 {
                         output.frequency_value = 0;
                         self.axes[i].set_output(output);
 
-                        // Calculate retract target: current position + 2mm
-                        let current_pos = self.axes[i].get_position() as i32;
+                        // Calculate retract target in hw-counter space. Hw
+                        // counter never wraps over realistic homing distances
+                        // (RETRACT_DISTANCE_MM is small), so a plain u32 add
+                        // is safe.
+                        let current_hw = self.axes[i].get_position();
                         let retract_pulses =
-                            (homing::RETRACT_DISTANCE_MM * mechanics::PULSES_PER_MM) as i32;
-                        self.axis_homing_retract_target[i] = current_pos + retract_pulses;
+                            (homing::RETRACT_DISTANCE_MM * mechanics::PULSES_PER_MM) as u32;
+                        self.axis_homing_retract_target[i] =
+                            current_hw.wrapping_add(retract_pulses);
 
                         // Start Phase 2: Retract
                         self.axis_homing_phase[i] = HomingPhase::Retracting;
@@ -1110,7 +1083,7 @@ impl BbmAutomatikV2 {
                         self.axis_target_speeds[i] = retract_hz;
 
                         tracing::info!(
-                            "[BbmAutomatikV2] Axis {} homing Phase 2: Retracting {:.1}mm (target: {} pulses)",
+                            "[BbmAutomatikV2] Axis {} homing Phase 2: Retracting {:.1}mm (target hw {})",
                             i,
                             homing::RETRACT_DISTANCE_MM,
                             self.axis_homing_retract_target[i]
@@ -1120,9 +1093,13 @@ impl BbmAutomatikV2 {
                 }
 
                 HomingPhase::Retracting => {
-                    // Check if we reached the retract target
-                    let current_pos = self.axes[i].get_position() as i32;
-                    if current_pos >= self.axis_homing_retract_target[i] {
+                    // Check if we reached the retract target (compare in
+                    // signed delta space so wraparound doesn't fool us).
+                    let current_hw = self.axes[i].get_position();
+                    let delta = current_hw
+                        .wrapping_sub(self.axis_homing_retract_target[i])
+                        as i32;
+                    if delta >= 0 {
                         // Stop the axis
                         self.axis_speeds[i] = 0;
                         self.axis_target_speeds[i] = 0;
@@ -1130,26 +1107,34 @@ impl BbmAutomatikV2 {
                         output.disble_ramp = false;
                         output.go_counter = false;
                         output.frequency_value = 0;
-                        self.axes[i].set_output(output);
 
-                        // Start Phase 3: Set zero
+                        // Start Phase 3: Set the hw counter to the virtual
+                        // offset so logical 0 is right here (physical
+                        // sensor + 2 mm retract). axis_position_offset is
+                        // updated eagerly so logical reads are correct
+                        // immediately; the SettingZero phase just waits
+                        // for the hardware to confirm via set_counter_done.
+                        output.set_counter = true;
+                        output.set_counter_value = POSITION_OFFSET_PULSES;
+                        self.axes[i].set_output(output);
+                        self.axis_position_offset[i] = POSITION_OFFSET_PULSES;
                         self.axis_homing_phase[i] = HomingPhase::SettingZero;
 
-                        // Reset position counter to 0
-                        self.axes[i].reset_position();
-
                         tracing::info!(
-                            "[BbmAutomatikV2] Axis {} homing Phase 3: Setting position to 0",
-                            i
+                            "[BbmAutomatikV2] Axis {} homing Phase 3: Setting hw counter to offset {} (logical 0)",
+                            i,
+                            POSITION_OFFSET_PULSES
                         );
                         self.emit_state();
                     }
                 }
 
                 HomingPhase::SettingZero => {
-                    // Check if set_counter is done (wait one cycle)
+                    // Wait for the hardware to apply the set_counter write.
                     let input = self.axes[i].get_input();
-                    if input.set_counter_done || input.counter_value == 0 {
+                    if input.set_counter_done
+                        || input.counter_value == self.axis_position_offset[i]
+                    {
                         // Clear the set_counter flag
                         self.axes[i].clear_set_counter();
 
@@ -1159,7 +1144,7 @@ impl BbmAutomatikV2 {
                         self.axis_homed[i] = true;
 
                         tracing::info!(
-                            "[BbmAutomatikV2] Axis {} homing COMPLETE - position is now 0",
+                            "[BbmAutomatikV2] Axis {} homing COMPLETE - logical position is now 0",
                             i
                         );
                         self.emit_state();
@@ -1202,12 +1187,11 @@ impl BbmAutomatikV2 {
 
     // ============ Auto-Sequence State Machine ============
 
-    /// True if axis is mid-move (either Travel Distance Control or
-    /// software-tracked speed-mode jog). Used by the auto-sequence state
-    /// machine to know when to advance to the next step.
+    /// True if axis is mid-move (Travel Distance Control in flight).
+    /// Used by the auto-sequence state machine to know when to advance.
     #[inline]
     fn is_axis_moving(&self, index: usize) -> bool {
-        self.axis_position_mode[index] || self.axis_jog_active[index]
+        self.axis_position_mode[index]
     }
 
     /// Update auto-sequence state machine (called from act() loop)
@@ -1413,16 +1397,6 @@ impl BbmAutomatikV2 {
 
     // ============ Teach / Calibration ============
 
-    /// Current axis position in mm (signed). Counter wraps in u32, so cast
-    /// through i32 first to preserve negative positions.
-    fn current_position_mm(&self, axis: usize) -> Option<f32> {
-        if axis >= self.axes.len() {
-            return None;
-        }
-        let pulses_i32 = self.axes[axis].get_position() as i32;
-        Some(pulses_i32 as f32 / mechanics::PULSES_PER_MM)
-    }
-
     /// Default placeholder name when a custom slot is saved for the first time.
     fn default_custom_name(slot: TeachSlot) -> &'static str {
         match slot {
@@ -1436,10 +1410,10 @@ impl BbmAutomatikV2 {
     /// Custom1/Custom2 the existing name is kept; if the slot was empty a
     /// default name ("Position 1" / "Position 2") is assigned.
     pub fn save_teach_position(&mut self, axis: usize, slot: TeachSlot) {
-        let pos_mm = match self.current_position_mm(axis) {
-            Some(p) => p,
-            None => return,
-        };
+        if axis >= self.axes.len() {
+            return;
+        }
+        let pos_mm = self.current_logical_mm(axis);
         let pos_mm = (pos_mm * 1000.0).round() / 1000.0; // 1µm precision
 
         let t = &mut self.teach_positions[axis];

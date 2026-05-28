@@ -210,15 +210,30 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 ],
                 axis_homing_retract_target: [0; 3],
                 axis_homed: [false; 3],
-                axis_jog_start_pulses: [0; 3],
-                axis_jog_target_delta: [0; 3],
-                axis_jog_active: [false; 3],
+                axis_position_offset: [
+                    crate::bbm_automatik_v2::POSITION_OFFSET_PULSES,
+                    crate::bbm_automatik_v2::POSITION_OFFSET_PULSES,
+                    crate::bbm_automatik_v2::POSITION_OFFSET_PULSES,
+                ],
                 axis_alarm_active: [false; 3],
                 door_interlock_active: false,
                 auto_sequence: None,
                 teach_positions: calibration::load(),
                 last_debug_log: None,
             };
+
+            // Queue the virtual-zero offset write to every axis. With
+            // POSITION_OFFSET_PULSES already stored in axis_position_offset
+            // above, logical reads are correct as soon as the hardware
+            // applies this set_counter (next cycle, ~700 µs). The act()
+            // loop clears set_counter after set_counter_done.
+            for i in 0..machine.axes.len() {
+                let mut output = machine.axes[i].get_output();
+                output.set_counter = true;
+                output.set_counter_value =
+                    crate::bbm_automatik_v2::POSITION_OFFSET_PULSES;
+                machine.axes[i].set_output(output);
+            }
 
             machine.emit_state();
             Ok(machine)
