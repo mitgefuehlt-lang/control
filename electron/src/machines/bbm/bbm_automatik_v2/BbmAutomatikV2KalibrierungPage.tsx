@@ -12,7 +12,10 @@ import { Input } from "@/components/ui/input";
 import { roundToDecimals } from "@/lib/decimal";
 import { TEACH_SLOT, TeachSlot } from "./bbmAutomatikV2Namespace";
 
-const DEFAULT_GOTO_SPEED_MM_S = 50;
+// Calibration runs the axis blind toward a saved target — typically
+// against an as-yet-uncalibrated soft limit. Use a slow, conservative
+// default; the user can still bump it up explicitly per session.
+const DEFAULT_GOTO_SPEED_MM_S = 10;
 
 type SlotDescriptor = {
   slot: TeachSlot;
