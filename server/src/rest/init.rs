@@ -1,10 +1,12 @@
 use anyhow::Result;
+use axum::http::{HeaderValue, header};
 use axum::routing::post;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
@@ -52,10 +54,20 @@ async fn init_api(app_state: Arc<SharedState>) -> Result<()> {
         }
     }
 
+    // Force the browser to revalidate cached responses so a freshly deployed
+    // index.html (and the new asset URLs it references) reach the tablet on
+    // every page load instead of the cached version sticking around. ServeDir
+    // emits ETag/Last-Modified, so a 304 round-trip is the typical cost.
+    let no_cache = SetResponseHeaderLayer::if_not_present(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache, must-revalidate"),
+    );
+
     let app = app
         .layer(socketio_layer)
         .layer(cors)
         .layer(trace_layer)
+        .layer(no_cache)
         .with_state(app_state.clone());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001")
