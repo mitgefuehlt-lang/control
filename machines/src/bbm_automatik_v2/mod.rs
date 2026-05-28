@@ -5,6 +5,7 @@ use control_core::socketio::namespace::NamespaceCacheingLogic;
 use ethercat_hal::io::digital_input::DigitalInput;
 use ethercat_hal::io::digital_output::DigitalOutput;
 use ethercat_hal::io::pulse_train_output::PulseTrainOutput;
+use serde::{Deserialize, Serialize};
 use smol::channel::{Receiver, Sender};
 use std::time::Instant;
 
@@ -161,6 +162,143 @@ pub enum HomingPhase {
     SettingZero,
 }
 
+// ============ Teach / Calibration ============
+
+/// A user-saved (teach-in) position with a name. Used for the 2 freely
+/// nameable slots per axis. Start/Ziel are stored as bare `Option<f32>`
+/// because their name is fixed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamedTeachPosition {
+    pub name: String,
+    pub position_mm: f32,
+}
+
+/// All teach-in positions for one axis. Persisted to disk so calibration
+/// survives reboots.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AxisTeachPositions {
+    #[serde(default)]
+    pub start_mm: Option<f32>,
+    #[serde(default)]
+    pub ziel_mm: Option<f32>,
+    #[serde(default)]
+    pub custom1: Option<NamedTeachPosition>,
+    #[serde(default)]
+    pub custom2: Option<NamedTeachPosition>,
+}
+
+/// Identifier for a teach slot (Start/Ziel are fixed; Custom1/Custom2 are
+/// freely nameable).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TeachSlot {
+    Start,
+    Ziel,
+    Custom1,
+    Custom2,
+}
+
+/// Calibration file load/save. Calibration lives at
+/// `$STATE_DIRECTORY/bbm-automatik-v2-calibration.json` (systemd sets
+/// STATE_DIRECTORY for our service via `StateDirectory=qitech`). On dev
+/// machines without that env var we fall back to the OS temp dir so tests
+/// don't litter `/var/lib/qitech`.
+pub mod calibration {
+    use super::AxisTeachPositions;
+    use serde::{Deserialize, Serialize};
+    use std::path::PathBuf;
+
+    const FILENAME: &str = "bbm-automatik-v2-calibration.json";
+
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    struct CalibrationFile {
+        #[serde(default)]
+        axes: [AxisTeachPositions; 3],
+    }
+
+    fn path() -> PathBuf {
+        if let Ok(dir) = std::env::var("STATE_DIRECTORY") {
+            return PathBuf::from(dir).join(FILENAME);
+        }
+        if cfg!(target_os = "linux") {
+            PathBuf::from("/var/lib/qitech").join(FILENAME)
+        } else {
+            std::env::temp_dir().join(FILENAME)
+        }
+    }
+
+    pub fn load() -> [AxisTeachPositions; 3] {
+        let p = path();
+        match std::fs::read_to_string(&p) {
+            Ok(s) => match serde_json::from_str::<CalibrationFile>(&s) {
+                Ok(f) => {
+                    tracing::info!(
+                        "[BbmAutomatikV2] Loaded calibration from {}",
+                        p.display()
+                    );
+                    f.axes
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "[BbmAutomatikV2] Calibration file at {} is corrupt ({}) - starting empty",
+                        p.display(),
+                        e
+                    );
+                    Default::default()
+                }
+            },
+            Err(_) => {
+                tracing::info!(
+                    "[BbmAutomatikV2] No calibration file at {} - starting empty",
+                    p.display()
+                );
+                Default::default()
+            }
+        }
+    }
+
+    /// Atomically persist the calibration. Errors are logged, not propagated -
+    /// the user can re-save and the in-memory state is still correct.
+    pub fn save(axes: &[AxisTeachPositions; 3]) {
+        let p = path();
+        if let Some(parent) = p.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::error!(
+                    "[BbmAutomatikV2] Failed to create calibration dir {}: {}",
+                    parent.display(),
+                    e
+                );
+                return;
+            }
+        }
+
+        let file = CalibrationFile { axes: axes.clone() };
+        let json = match serde_json::to_string_pretty(&file) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::error!("[BbmAutomatikV2] Failed to serialize calibration: {}", e);
+                return;
+            }
+        };
+
+        let tmp = p.with_extension("json.tmp");
+        if let Err(e) = std::fs::write(&tmp, &json) {
+            tracing::error!(
+                "[BbmAutomatikV2] Failed to write {}: {}",
+                tmp.display(),
+                e
+            );
+            return;
+        }
+        if let Err(e) = std::fs::rename(&tmp, &p) {
+            tracing::error!(
+                "[BbmAutomatikV2] Failed to commit calibration to {}: {}",
+                p.display(),
+                e
+            );
+        }
+    }
+}
+
 /// Mechanical constants for the linear axes
 pub mod mechanics {
     /// Motor pulses per revolution (default stepper setting)
@@ -263,6 +401,9 @@ pub struct BbmAutomatikV2 {
     // Auto-sequence state machine
     pub auto_sequence: Option<AutoSequenceState>,
 
+    // Calibration / teach-in positions per axis (persisted to disk)
+    pub teach_positions: [AxisTeachPositions; 3],
+
     // Debug logging
     pub last_debug_log: Option<Instant>,
 }
@@ -318,6 +459,7 @@ impl BbmAutomatikV2 {
             auto_current_block: self.auto_sequence.as_ref().map(|s| s.current_block).unwrap_or(0),
             auto_current_cycle: self.auto_sequence.as_ref().map(|s| s.current_cycle).unwrap_or(0),
             auto_total_sets: self.auto_sequence.as_ref().map(|s| s.total_sets).unwrap_or(0),
+            teach_positions: self.teach_positions.clone(),
         }
     }
 
@@ -1267,5 +1409,167 @@ impl BbmAutomatikV2 {
             tracing::info!("[BbmAutomatikV2] Auto sequence stopped by user");
             self.emit_state();
         }
+    }
+
+    // ============ Teach / Calibration ============
+
+    /// Current axis position in mm (signed). Counter wraps in u32, so cast
+    /// through i32 first to preserve negative positions.
+    fn current_position_mm(&self, axis: usize) -> Option<f32> {
+        if axis >= self.axes.len() {
+            return None;
+        }
+        let pulses_i32 = self.axes[axis].get_position() as i32;
+        Some(pulses_i32 as f32 / mechanics::PULSES_PER_MM)
+    }
+
+    /// Default placeholder name when a custom slot is saved for the first time.
+    fn default_custom_name(slot: TeachSlot) -> &'static str {
+        match slot {
+            TeachSlot::Custom1 => "Position 1",
+            TeachSlot::Custom2 => "Position 2",
+            _ => "",
+        }
+    }
+
+    /// Teach-in: capture the current axis position into the given slot. For
+    /// Custom1/Custom2 the existing name is kept; if the slot was empty a
+    /// default name ("Position 1" / "Position 2") is assigned.
+    pub fn save_teach_position(&mut self, axis: usize, slot: TeachSlot) {
+        let pos_mm = match self.current_position_mm(axis) {
+            Some(p) => p,
+            None => return,
+        };
+        let pos_mm = (pos_mm * 1000.0).round() / 1000.0; // 1µm precision
+
+        let t = &mut self.teach_positions[axis];
+        match slot {
+            TeachSlot::Start => t.start_mm = Some(pos_mm),
+            TeachSlot::Ziel => t.ziel_mm = Some(pos_mm),
+            TeachSlot::Custom1 | TeachSlot::Custom2 => {
+                let slot_ref = match slot {
+                    TeachSlot::Custom1 => &mut t.custom1,
+                    TeachSlot::Custom2 => &mut t.custom2,
+                    _ => unreachable!(),
+                };
+                match slot_ref {
+                    Some(existing) => existing.position_mm = pos_mm,
+                    None => {
+                        *slot_ref = Some(NamedTeachPosition {
+                            name: Self::default_custom_name(slot).to_string(),
+                            position_mm: pos_mm,
+                        });
+                    }
+                }
+            }
+        }
+
+        tracing::info!(
+            "[BbmAutomatikV2] Teach axis {} slot {:?} = {:.3} mm",
+            axis,
+            slot,
+            pos_mm
+        );
+        calibration::save(&self.teach_positions);
+        self.emit_state();
+    }
+
+    /// Clear a teach slot (sets it back to None / removes the value).
+    pub fn clear_teach_position(&mut self, axis: usize, slot: TeachSlot) {
+        if axis >= self.teach_positions.len() {
+            return;
+        }
+        let t = &mut self.teach_positions[axis];
+        match slot {
+            TeachSlot::Start => t.start_mm = None,
+            TeachSlot::Ziel => t.ziel_mm = None,
+            TeachSlot::Custom1 => t.custom1 = None,
+            TeachSlot::Custom2 => t.custom2 = None,
+        }
+        tracing::info!("[BbmAutomatikV2] Cleared axis {} slot {:?}", axis, slot);
+        calibration::save(&self.teach_positions);
+        self.emit_state();
+    }
+
+    /// Rename a custom slot. Ignored for Start/Ziel (their names are fixed)
+    /// and ignored if the custom slot is empty.
+    pub fn rename_custom_teach_position(
+        &mut self,
+        axis: usize,
+        slot: TeachSlot,
+        name: String,
+    ) {
+        if axis >= self.teach_positions.len() {
+            return;
+        }
+        let t = &mut self.teach_positions[axis];
+        let trimmed = name.trim();
+        // Reject empty / oversized names so the UI can't make the slot
+        // unselectable.
+        if trimmed.is_empty() || trimmed.len() > 32 {
+            tracing::warn!(
+                "[BbmAutomatikV2] Reject rename axis {} slot {:?}: invalid name length",
+                axis,
+                slot
+            );
+            return;
+        }
+        let slot_ref = match slot {
+            TeachSlot::Custom1 => &mut t.custom1,
+            TeachSlot::Custom2 => &mut t.custom2,
+            _ => {
+                tracing::warn!(
+                    "[BbmAutomatikV2] Cannot rename non-custom slot {:?}",
+                    slot
+                );
+                return;
+            }
+        };
+        match slot_ref {
+            Some(p) => p.name = trimmed.to_string(),
+            None => {
+                tracing::warn!(
+                    "[BbmAutomatikV2] Cannot rename axis {} slot {:?}: not yet saved",
+                    axis,
+                    slot
+                );
+                return;
+            }
+        }
+        calibration::save(&self.teach_positions);
+        self.emit_state();
+    }
+
+    /// Drive to a saved teach position. No-op if slot is empty.
+    pub fn goto_teach_position(&mut self, axis: usize, slot: TeachSlot, speed_mm_s: f32) {
+        if axis >= self.teach_positions.len() {
+            return;
+        }
+        let t = &self.teach_positions[axis];
+        let pos = match slot {
+            TeachSlot::Start => t.start_mm,
+            TeachSlot::Ziel => t.ziel_mm,
+            TeachSlot::Custom1 => t.custom1.as_ref().map(|p| p.position_mm),
+            TeachSlot::Custom2 => t.custom2.as_ref().map(|p| p.position_mm),
+        };
+        let pos = match pos {
+            Some(p) => p,
+            None => {
+                tracing::warn!(
+                    "[BbmAutomatikV2] Cannot go to axis {} slot {:?}: empty",
+                    axis,
+                    slot
+                );
+                return;
+            }
+        };
+        tracing::info!(
+            "[BbmAutomatikV2] Goto axis {} slot {:?} -> {:.3} mm at {:.1} mm/s",
+            axis,
+            slot,
+            pos,
+            speed_mm_s
+        );
+        self.move_to_position_mm(axis, pos, speed_mm_s);
     }
 }

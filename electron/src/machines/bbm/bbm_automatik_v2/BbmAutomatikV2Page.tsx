@@ -28,6 +28,12 @@ export function BbmAutomatikV2Page() {
           icon: "lu:Cog",
         },
         {
+          link: "kalibrierung",
+          activeLink: "kalibrierung",
+          title: "Kalibrierung",
+          icon: "lu:Crosshair",
+        },
+        {
           link: "actuators",
           activeLink: "actuators",
           title: "Aktoren",

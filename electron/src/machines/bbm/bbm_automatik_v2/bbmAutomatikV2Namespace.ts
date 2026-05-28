@@ -19,6 +19,39 @@ import { MachineIdentificationUnique } from "@/machines/types";
 // ========== Event Schema Definitions ==========
 
 /**
+ * A named teach-in slot (Custom1 / Custom2). Start/Ziel use a bare nullable
+ * number instead because their name is fixed.
+ */
+export const namedTeachPositionSchema = z.object({
+  name: z.string(),
+  position_mm: z.number(),
+});
+
+/**
+ * All teach-in positions for one axis. Mirrors the Rust struct
+ * `AxisTeachPositions`.
+ */
+export const axisTeachPositionsSchema = z.object({
+  start_mm: z.number().nullable(),
+  ziel_mm: z.number().nullable(),
+  custom1: namedTeachPositionSchema.nullable(),
+  custom2: namedTeachPositionSchema.nullable(),
+});
+
+/**
+ * Teach slot tag matching the Rust enum `TeachSlot`. Sent to the backend
+ * in mutations.
+ */
+export const TEACH_SLOT = {
+  START: "Start",
+  ZIEL: "Ziel",
+  CUSTOM1: "Custom1",
+  CUSTOM2: "Custom2",
+} as const;
+
+export type TeachSlot = (typeof TEACH_SLOT)[keyof typeof TEACH_SLOT];
+
+/**
  * State event schema - controllable values
  * 3 axes (MT, Schieber, Drücker) - Bürste is now a digital output
  */
@@ -67,6 +100,11 @@ export const stateEventDataSchema = z.object({
   auto_current_block: z.number(),
   auto_current_cycle: z.number(),
   auto_total_sets: z.number(),
+  teach_positions: z.tuple([
+    axisTeachPositionsSchema,
+    axisTeachPositionsSchema,
+    axisTeachPositionsSchema,
+  ]),
 });
 
 /**

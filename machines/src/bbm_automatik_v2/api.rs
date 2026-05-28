@@ -1,4 +1,4 @@
-use super::BbmAutomatikV2;
+use super::{AxisTeachPositions, BbmAutomatikV2, TeachSlot};
 use crate::{MachineApi, MachineMessage};
 use control_core::socketio::{
     event::{Event, GenericEvent},
@@ -28,6 +28,8 @@ pub struct StateEvent {
     pub auto_current_block: u32,
     pub auto_current_cycle: u32,
     pub auto_total_sets: u32,
+    /// Per-axis teach-in positions (persisted to disk)
+    pub teach_positions: [AxisTeachPositions; 3],
 }
 
 impl StateEvent {
@@ -109,6 +111,22 @@ pub enum Mutation {
     StartAutoSequence { speed_preset: String, total_sets: u32 },
     /// Stop auto-sequence
     StopAutoSequence,
+    /// Capture the current axis position into the given teach slot
+    SaveTeachPosition { axis: usize, slot: TeachSlot },
+    /// Clear a teach slot (set back to empty)
+    ClearTeachPosition { axis: usize, slot: TeachSlot },
+    /// Rename a custom teach slot (Custom1 / Custom2 only)
+    RenameCustomPosition {
+        axis: usize,
+        slot: TeachSlot,
+        name: String,
+    },
+    /// Drive axis to a stored teach position
+    GoToTeachPosition {
+        axis: usize,
+        slot: TeachSlot,
+        speed_mm_s: f32,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -181,6 +199,20 @@ impl MachineApi for BbmAutomatikV2 {
                 self.start_auto_sequence(&speed_preset, total_sets);
             }
             Mutation::StopAutoSequence => self.stop_auto_sequence(),
+            Mutation::SaveTeachPosition { axis, slot } => {
+                self.save_teach_position(axis, slot)
+            }
+            Mutation::ClearTeachPosition { axis, slot } => {
+                self.clear_teach_position(axis, slot)
+            }
+            Mutation::RenameCustomPosition { axis, slot, name } => {
+                self.rename_custom_teach_position(axis, slot, name)
+            }
+            Mutation::GoToTeachPosition {
+                axis,
+                slot,
+                speed_mm_s,
+            } => self.goto_teach_position(axis, slot, speed_mm_s),
         }
         Ok(())
     }

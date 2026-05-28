@@ -78,6 +78,12 @@ in {
         NoNewPrivileges = true;
         ProtectSystem = "strict";
 
+        # Persistent state (machine calibration, etc.). systemd creates
+        # /var/lib/qitech, chowns it to the service user, and exposes the
+        # path via $STATE_DIRECTORY.
+        StateDirectory = "qitech";
+        StateDirectoryMode = "0750";
+
         # Open only /proc/irq explicitly
         ReadWritePaths = [ "/proc/irq" ];
         ProtectHome = true;

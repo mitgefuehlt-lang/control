@@ -1,5 +1,6 @@
 use crate::bbm_automatik_v2::BbmAutomatikV2;
 use crate::bbm_automatik_v2::api::BbmAutomatikV2Namespace;
+use crate::bbm_automatik_v2::calibration;
 use crate::bbm_automatik_v2::roles;
 use smol::block_on;
 use std::time::Instant;
@@ -215,6 +216,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 axis_alarm_active: [false; 3],
                 door_interlock_active: false,
                 auto_sequence: None,
+                teach_positions: calibration::load(),
                 last_debug_log: None,
             };
 

@@ -7,6 +7,8 @@ import { z } from "zod";
 import {
   useBbmAutomatikV2Namespace,
   StateEvent,
+  TEACH_SLOT,
+  TeachSlot,
 } from "./bbmAutomatikV2Namespace";
 import { useEffect, useMemo } from "react";
 import { useStateOptimistic } from "@/lib/useStateOptimistic";
@@ -608,6 +610,127 @@ function useBbmAutomatik(
     });
   };
 
+  // ===== Teach-in / Calibration mutations =====
+
+  const saveTeachPositionSchema = z.object({
+    action: z.literal("SaveTeachPosition"),
+    value: z.object({
+      axis: z.number(),
+      slot: z.string(),
+    }),
+  });
+  const { request: requestSaveTeachPosition } = useMachineMutation(
+    saveTeachPositionSchema,
+  );
+
+  const saveTeachPosition = (axis: number, slot: TeachSlot) => {
+    requestSaveTeachPosition({
+      machine_identification_unique,
+      data: { action: "SaveTeachPosition", value: { axis, slot } },
+    });
+  };
+
+  const clearTeachPositionSchema = z.object({
+    action: z.literal("ClearTeachPosition"),
+    value: z.object({
+      axis: z.number(),
+      slot: z.string(),
+    }),
+  });
+  const { request: requestClearTeachPosition } = useMachineMutation(
+    clearTeachPositionSchema,
+  );
+
+  const clearTeachPosition = (axis: number, slot: TeachSlot) => {
+    requestClearTeachPosition({
+      machine_identification_unique,
+      data: { action: "ClearTeachPosition", value: { axis, slot } },
+    });
+  };
+
+  const renameCustomPositionSchema = z.object({
+    action: z.literal("RenameCustomPosition"),
+    value: z.object({
+      axis: z.number(),
+      slot: z.string(),
+      name: z.string(),
+    }),
+  });
+  const { request: requestRenameCustomPosition } = useMachineMutation(
+    renameCustomPositionSchema,
+  );
+
+  const renameCustomPosition = (
+    axis: number,
+    slot: TeachSlot,
+    name: string,
+  ) => {
+    requestRenameCustomPosition({
+      machine_identification_unique,
+      data: {
+        action: "RenameCustomPosition",
+        value: { axis, slot, name },
+      },
+    });
+  };
+
+  const goToTeachPositionSchema = z.object({
+    action: z.literal("GoToTeachPosition"),
+    value: z.object({
+      axis: z.number(),
+      slot: z.string(),
+      speed_mm_s: z.number(),
+    }),
+  });
+  const { request: requestGoToTeachPosition } = useMachineMutation(
+    goToTeachPositionSchema,
+  );
+
+  const goToTeachPosition = (
+    axis: number,
+    slot: TeachSlot,
+    speed_mm_s: number,
+  ) => {
+    requestGoToTeachPosition({
+      machine_identification_unique,
+      data: {
+        action: "GoToTeachPosition",
+        value: { axis, slot, speed_mm_s },
+      },
+    });
+  };
+
+  /** Get the saved mm value for a slot, or null if empty. */
+  const getTeachPositionMm = (
+    axis: number,
+    slot: TeachSlot,
+  ): number | null => {
+    const t = stateOptimistic.value?.data.teach_positions?.[axis];
+    if (!t) return null;
+    switch (slot) {
+      case TEACH_SLOT.START:
+        return t.start_mm;
+      case TEACH_SLOT.ZIEL:
+        return t.ziel_mm;
+      case TEACH_SLOT.CUSTOM1:
+        return t.custom1?.position_mm ?? null;
+      case TEACH_SLOT.CUSTOM2:
+        return t.custom2?.position_mm ?? null;
+    }
+  };
+
+  /** Get the custom slot name, or null if the slot is empty / not custom. */
+  const getCustomPositionName = (
+    axis: number,
+    slot: TeachSlot,
+  ): string | null => {
+    const t = stateOptimistic.value?.data.teach_positions?.[axis];
+    if (!t) return null;
+    if (slot === TEACH_SLOT.CUSTOM1) return t.custom1?.name ?? null;
+    if (slot === TEACH_SLOT.CUSTOM2) return t.custom2?.name ?? null;
+    return null;
+  };
+
   return {
     // State
     state: stateOptimistic.value?.data,
@@ -648,6 +771,15 @@ function useBbmAutomatik(
     isAutoRunning,
     startAutoSequence,
     stopAutoSequence,
+
+    // Teach-in / Calibration
+    saveTeachPosition,
+    clearTeachPosition,
+    renameCustomPosition,
+    goToTeachPosition,
+    getTeachPositionMm,
+    getCustomPositionName,
+    TEACH_SLOT,
 
     // Alarm functions
     resetAlarms,
