@@ -81,6 +81,7 @@ import { BbmAutomatikV2AutoPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutom
 import { BbmAutomatikV2StatusPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2StatusPage";
 import { BbmAutomatikV2ActuatorsPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2ActuatorsPage";
 import { BbmAutomatikV2KalibrierungPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2KalibrierungPage";
+import { BbmAutomatikV2PinGate } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2PinGate";
 
 // make a route tree like this
 // _mainNavigation/machines/winder2/$serial/control
@@ -393,13 +394,21 @@ export const bbmAutomatikV2SerialRoute = createRoute({
 export const bbmAutomatikV2MotorsRoute = createRoute({
   getParentRoute: () => bbmAutomatikV2SerialRoute,
   path: "motors",
-  component: () => <BbmAutomatikV2MotorsPage />,
+  component: () => (
+    <BbmAutomatikV2PinGate>
+      <BbmAutomatikV2MotorsPage />
+    </BbmAutomatikV2PinGate>
+  ),
 });
 
 export const bbmAutomatikV2TestRoute = createRoute({
   getParentRoute: () => bbmAutomatikV2SerialRoute,
   path: "test",
-  component: () => <BbmAutomatikV2TestPage />,
+  component: () => (
+    <BbmAutomatikV2PinGate>
+      <BbmAutomatikV2TestPage />
+    </BbmAutomatikV2PinGate>
+  ),
 });
 
 export const bbmAutomatikV2AutoRoute = createRoute({
@@ -411,7 +420,11 @@ export const bbmAutomatikV2AutoRoute = createRoute({
 export const bbmAutomatikV2ActuatorsRoute = createRoute({
   getParentRoute: () => bbmAutomatikV2SerialRoute,
   path: "actuators",
-  component: () => <BbmAutomatikV2ActuatorsPage />,
+  component: () => (
+    <BbmAutomatikV2PinGate>
+      <BbmAutomatikV2ActuatorsPage />
+    </BbmAutomatikV2PinGate>
+  ),
 });
 
 export const bbmAutomatikV2StatusRoute = createRoute({
@@ -423,7 +436,11 @@ export const bbmAutomatikV2StatusRoute = createRoute({
 export const bbmAutomatikV2KalibrierungRoute = createRoute({
   getParentRoute: () => bbmAutomatikV2SerialRoute,
   path: "kalibrierung",
-  component: () => <BbmAutomatikV2KalibrierungPage />,
+  component: () => (
+    <BbmAutomatikV2PinGate>
+      <BbmAutomatikV2KalibrierungPage />
+    </BbmAutomatikV2PinGate>
+  ),
 });
 
 export const setupRoute = createRoute({
