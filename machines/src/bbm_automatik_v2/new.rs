@@ -98,7 +98,16 @@ impl MachineNewTrait for BbmAutomatikV2 {
             )
             .await?;
 
-            // Configure EL2522 #1 for both channels - Hardware ramp enabled
+            // Configure EL2522 #1 for both channels - Hardware ramp enabled.
+            //
+            // Watchdog: ACTIVE (Beckhoff delivery state, SM watchdog 100 ms).
+            // The manual does NOT require deactivating it for Travel Distance
+            // Control; our RT loop writes process data every cycle so it
+            // never triggers in normal operation. On communication loss
+            // (cable break, server crash) the terminal autonomously ramps
+            // the frequency down to the user switch-on value (0 Hz) with
+            // the emergency ramp time constant — motors stop without any
+            // software involvement. See learnings1.md §12.3.
             let el2522_1_config = EL2522Configuration {
                 channel1_configuration: EL2522ChannelConfiguration {
                     operating_mode: EL2522OperatingMode::PulseDirectionSpecification,
@@ -107,7 +116,11 @@ impl MachineNewTrait for BbmAutomatikV2 {
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: true,
-                    watchdog_timer_deactive: true,
+                    watchdog_timer_deactive: false,
+                    emergency_ramp_active: true,
+                    user_switch_on_value_on_watchdog: true,
+                    user_switch_on_value: 0,
+                    ramp_time_constant_emergency: 1000,
                     ramp_time_constant_rising: 2500,
                     ramp_time_constant_falling: 2250,
                     ..Default::default()
@@ -119,7 +132,11 @@ impl MachineNewTrait for BbmAutomatikV2 {
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: true,
-                    watchdog_timer_deactive: true,
+                    watchdog_timer_deactive: false,
+                    emergency_ramp_active: true,
+                    user_switch_on_value_on_watchdog: true,
+                    user_switch_on_value: 0,
+                    ramp_time_constant_emergency: 1000,
                     ramp_time_constant_rising: 2500,
                     ramp_time_constant_falling: 2250,
                     ..Default::default()
@@ -148,6 +165,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
 
             // Configure EL2522 #2 - Hardware ramp enabled
             // Only Channel 1 (Drücker) is used. Channel 2 (PTO2) is unused (Bürste moved to DO).
+            // Watchdog active + emergency ramp, same rationale as EL2522 #1.
             let el2522_2_config = EL2522Configuration {
                 // Channel 1: Drücker (Linear)
                 channel1_configuration: EL2522ChannelConfiguration {
@@ -157,7 +175,11 @@ impl MachineNewTrait for BbmAutomatikV2 {
                     base_frequency_1: 5000,
                     frequency_factor: 100,
                     travel_distance_control: true,
-                    watchdog_timer_deactive: true,
+                    watchdog_timer_deactive: false,
+                    emergency_ramp_active: true,
+                    user_switch_on_value_on_watchdog: true,
+                    user_switch_on_value: 0,
+                    ramp_time_constant_emergency: 1000,
                     ramp_time_constant_rising: 2500,
                     ramp_time_constant_falling: 2250,
                     ..Default::default()
@@ -211,6 +233,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 ],
                 axis_homing_retract_target: [0; 3],
                 axis_homed: [false; 3],
+                axis_step_loss: [false; 3],
                 axis_position_offset: [
                     crate::bbm_automatik_v2::POSITION_OFFSET_PULSES,
                     crate::bbm_automatik_v2::POSITION_OFFSET_PULSES,

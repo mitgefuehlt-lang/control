@@ -19,7 +19,23 @@ pub struct RtLoopInputs<'a> {
     pub ethercat_perf_metrics: Option<&'a mut EthercatPerformanceMetrics>,
     pub sleeper: SpinSleeper,
     pub cycle_target: Duration,
+    /// Consecutive cycles in which the EtherCAT bus was degraded (not all
+    /// subdevices in OP, or working counter below the healthy baseline).
+    /// Reset to 0 on every healthy cycle.
+    pub degraded_cycles: u32,
+    /// Working counter of the first successful cycle after setup. With a
+    /// fixed device group all in OP this value is constant; a lower value
+    /// means a subdevice stopped exchanging process data (e.g. E-bus
+    /// break behind the coupler) even though the frame itself returns.
+    pub healthy_working_counter: Option<u16>,
 }
+
+/// After this many consecutive degraded cycles the loop errors out and the
+/// process exits (systemd restarts it cleanly — same pattern as the
+/// EtherCAT init timeout). At a 300 µs cycle target this is ~30 ms, well
+/// below the 100 ms EL2522 SM-watchdog that autonomously stops the motors.
+/// Transient single-frame losses do not trip this.
+const MAX_DEGRADED_CYCLES: u32 = 100;
 
 // 300 us loop cycle target
 // SharedState is mostly read from and rarely locked, but does not contain any machine,ethercat devices etc
@@ -77,6 +93,8 @@ pub fn start_loop_thread(
                 sleeper,
                 cycle_target,
                 ethercat_perf_metrics: Some(&mut ethercat_perf),
+                degraded_cycles: 0,
+                healthy_working_counter: None,
             };
 
             loop {
@@ -90,6 +108,9 @@ pub fn start_loop_thread(
                     HotThreadMessage::AddEtherCatSetup(ethercat_setup) => {
                         println!("EthercatSetup: {:?}", ethercat_setup.devices);
                         rt_loop_inputs.ethercat_setup = Some(Box::new(ethercat_setup));
+                        // Fresh bus -> fresh health baseline
+                        rt_loop_inputs.degraded_cycles = 0;
+                        rt_loop_inputs.healthy_working_counter = None;
                     }
                     HotThreadMessage::WriteMachineDeviceInfo(info_request) => {
                         if let Some(ethercat_setup) = &rt_loop_inputs.ethercat_setup {
@@ -174,17 +195,28 @@ pub fn start_loop_thread(
     return res;
 }
 
+/// Bus health snapshot of one tx/rx cycle, evaluated in `loop_once`.
+pub struct BusHealth {
+    pub all_op: bool,
+    pub working_counter: u16,
+}
+
 pub async fn copy_ethercat_inputs(
     ethercat_setup: Option<&EthercatSetup>,
-) -> Result<(), anyhow::Error> {
+) -> Result<Option<BusHealth>, anyhow::Error> {
     // only if we have an ethercat setup
     // - tx/rx cycle
     // - copy inputs to devices
+    let mut bus_health = None;
     if let Some(ethercat_setup) = ethercat_setup {
-        ethercat_setup
+        let response = ethercat_setup
             .group
             .tx_rx(&ethercat_setup.maindevice)
             .await?;
+        bus_health = Some(BusHealth {
+            all_op: response.all_op(),
+            working_counter: response.working_counter,
+        });
 
         // copy inputs to devices
         for (i, subdevice) in ethercat_setup
@@ -226,7 +258,7 @@ pub async fn copy_ethercat_inputs(
             })?;
         }
     }
-    Ok(())
+    Ok(bus_health)
 }
 
 pub async fn copy_ethercat_outputs(
@@ -294,7 +326,39 @@ pub fn loop_once<'maindevice>(inputs: &mut RtLoopInputs<'_>) -> Result<(), anyho
 
         let res = smol::block_on(copy_ethercat_inputs(inputs.ethercat_setup.as_deref()));
         match res {
-            Ok(_) => (),
+            Ok(bus_health) => {
+                // Bus degradation watchdog: a hard tx/rx failure (cable to
+                // the PC pulled) already errors out above. This catches the
+                // softer failure modes — a subdevice leaving OP or the
+                // working counter dropping below the healthy baseline
+                // (e.g. E-bus break behind the coupler) — where frames
+                // still circulate but process data is no longer valid.
+                if let Some(health) = bus_health {
+                    let baseline = *inputs
+                        .healthy_working_counter
+                        .get_or_insert(health.working_counter);
+                    // Self-correcting baseline: if a later cycle reports a
+                    // higher WKC, the first cycle was the degraded one.
+                    if health.working_counter > baseline {
+                        inputs.healthy_working_counter = Some(health.working_counter);
+                    }
+                    let healthy = health.all_op && health.working_counter >= baseline;
+                    if healthy {
+                        inputs.degraded_cycles = 0;
+                    } else {
+                        inputs.degraded_cycles += 1;
+                        if inputs.degraded_cycles >= MAX_DEGRADED_CYCLES {
+                            return Err(anyhow::anyhow!(
+                                "EtherCAT bus degraded for {} consecutive cycles (all_op={}, wkc={}, healthy wkc={}) - exiting for clean restart",
+                                inputs.degraded_cycles,
+                                health.all_op,
+                                health.working_counter,
+                                baseline
+                            ));
+                        }
+                    }
+                }
+            }
             Err(e) => {
                 return Err(anyhow::anyhow!("copy_ethercat_inputs failed: {:?}", e));
             }

@@ -366,6 +366,15 @@ pub mod calibration {
 /// direction, vastly more than any physical axis on this machine.
 pub const POSITION_OFFSET_PULSES: u32 = 1_000_000;
 
+/// If a Travel Distance Control move ends more than this many pulses away
+/// from its target, the position integrity of the axis is no longer
+/// trustworthy: the axis is flagged (`axis_step_loss`), its `axis_homed`
+/// flag is revoked (which also disables soft limits, since they would be
+/// enforced against a wrong position) and a running auto-sequence is
+/// aborted. The user must re-home the axis to clear the flag.
+/// 20 pulses = 1 mm at 20 pulses/mm.
+pub const STEP_LOSS_INVALIDATE_PULSES: i32 = 20;
+
 /// Mechanical constants for the linear axes
 pub mod mechanics {
     /// Motor pulses per revolution (default stepper setting)
@@ -445,6 +454,11 @@ pub struct BbmAutomatikV2 {
     /// Soft limits are only enforced after this flag is set.
     pub axis_homed: [bool; 3],
 
+    /// true when a TDC move ended further than
+    /// [`STEP_LOSS_INVALIDATE_PULSES`] from its target. Cleared only by a
+    /// successful re-homing of the axis. While set, `axis_homed` is false.
+    pub axis_step_loss: [bool; 3],
+
     /// Virtual zero offset per axis (see [`POSITION_OFFSET_PULSES`]).
     /// Initialised to `POSITION_OFFSET_PULSES` at machine construction so
     /// negative logical jogs work even before homing; reapplied on Homing
@@ -519,6 +533,7 @@ impl BbmAutomatikV2 {
             axis_soft_limit_max: self.axis_soft_limit_max_mm,
             axis_soft_limit_min: self.axis_soft_limit_min_mm,
             axis_alarm_active: self.axis_alarm_active,
+            axis_step_loss: self.axis_step_loss,
             door_interlock_active: self.door_interlock_active,
             auto_running: self.auto_sequence.is_some(),
             auto_current_set: self.auto_sequence.as_ref().map(|s| s.current_set).unwrap_or(0),
@@ -678,11 +693,16 @@ impl BbmAutomatikV2 {
             let clamped = accel_mm_s2.clamp(4.0, 500.0);
             self.axis_accelerations[index] = clamped;
 
-            // Calculate ramp time constants for hardware
+            // Calculate ramp time constants for hardware.
+            // base_freq must match base_frequency_1 in new.rs (5000 Hz).
             let accel_hz_s = clamped * mechanics::PULSES_PER_MM;
             let base_freq = 5000.0_f32;
             let rising_ms = ((base_freq / accel_hz_s) * 1000.0) as u16;
-            let falling_ms = rising_ms; // Same as rising to avoid step loss from aggressive braking
+            // Beckhoff EL252x manual p.139: the falling ramp must be ~10%
+            // steeper than the rising ramp, otherwise Travel Distance
+            // Control reaches the target at full speed instead of via the
+            // slowing-down frequency (imprecise stop / overshoot).
+            let falling_ms = ((rising_ms as f32) * 0.9) as u16;
 
             // SDO-Write to the correct EL2522
             // NOTE: SdoWriteU16Fn returns () - errors are handled inside the callback.
@@ -870,7 +890,28 @@ impl BbmAutomatikV2 {
                     let actual_pos = self.current_logical_pulses(i);
                     let target_pos = self.axis_target_positions[i];
                     let deviation = (actual_pos - target_pos).abs();
-                    if deviation > 2 {
+                    if deviation > STEP_LOSS_INVALIDATE_PULSES {
+                        // Position integrity lost: revoke homing (forces
+                        // re-referencing, also disables the now-unreliable
+                        // soft limits) and abort a running auto-sequence.
+                        tracing::error!(
+                            "[Axis {}] STEP LOSS: target={} actual={} deviation={} pulses ({:.2} mm) - homing revoked, re-reference required",
+                            i,
+                            target_pos,
+                            actual_pos,
+                            deviation,
+                            deviation as f32 / mechanics::PULSES_PER_MM
+                        );
+                        self.axis_step_loss[i] = true;
+                        self.axis_homed[i] = false;
+                        if self.auto_sequence.is_some() {
+                            tracing::error!(
+                                "[BbmAutomatikV2] Auto sequence aborted due to step loss on axis {}",
+                                i
+                            );
+                            self.stop_auto_sequence();
+                        }
+                    } else if deviation > 2 {
                         tracing::warn!(
                             "[Axis {}] STEP LOSS DETECTED: target={} actual={} deviation={} pulses ({:.2} mm)",
                             i,
@@ -1214,6 +1255,8 @@ impl BbmAutomatikV2 {
                         self.axis_homing_phase[i] = HomingPhase::Idle;
                         // From here on, soft limits apply (position counter is now calibrated).
                         self.axis_homed[i] = true;
+                        // A fresh reference clears any step-loss flag.
+                        self.axis_step_loss[i] = false;
 
                         tracing::info!(
                             "[BbmAutomatikV2] Axis {} homing COMPLETE - logical position is now 0",
@@ -1228,21 +1271,27 @@ impl BbmAutomatikV2 {
 
     // ============ Door Interlock ============
 
-    /// Door interlock: if door opens during operation, emergency-stop all axes
-    /// Returns true if interlock state changed (for UI update)
+    /// Door interlock: if door opens during operation, emergency-stop all
+    /// axes and switch off every moving actuator (Bürste, Rüttler,
+    /// Pneumatik). Returns true if interlock state changed (for UI update)
     pub fn check_door_interlock(&mut self) -> bool {
         let door_closed = self.are_doors_closed();
+        // The rotating brush is a hazard on its own, so it also arms the
+        // interlock even when no axis is moving.
         let any_moving = self.axis_speeds.iter().any(|&s| s != 0)
-            || self.auto_sequence.is_some();
+            || self.auto_sequence.is_some()
+            || self.output_states[outputs::BUERSTENMOTOR];
 
         if !door_closed && any_moving && !self.door_interlock_active {
             tracing::warn!("[BbmAutomatikV2] !!! DOOR OPEN - Emergency stop !!!");
             self.door_interlock_active = true;
             self.stop_all_axes();
+            self.set_buerstenmotor(false);
+            self.set_ruettelmotor(false);
+            self.set_pneumatik(false);
             // Abort auto sequence if running
             if self.auto_sequence.is_some() {
                 self.auto_sequence = None;
-                self.set_ruettelmotor(false);
                 self.set_ampel(true, false, false);
             }
             return true;

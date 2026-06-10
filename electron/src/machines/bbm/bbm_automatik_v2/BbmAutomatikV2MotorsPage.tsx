@@ -480,6 +480,19 @@ export function BbmAutomatikV2MotorsPage() {
         </div>
       )}
 
+      {/* Step-loss banner: a TDC move ended >1mm off target, position
+          integrity is lost until the axis is re-homed */}
+      {state?.axis_step_loss.some((s) => s) && (
+        <div className="mb-4 rounded-lg bg-orange-600 px-4 py-3 text-center text-lg font-bold text-white">
+          SCHRITTVERLUST{" "}
+          {state.axis_step_loss
+            .map((s, i) => (s ? AXIS_NAMES[i] : null))
+            .filter(Boolean)
+            .join(", ")}{" "}
+          - BITTE NEU REFERENZIEREN
+        </div>
+      )}
+
       {/* Global alarm reset banner */}
       {hasAlarm && (
         <div className="mb-4 flex items-center justify-between rounded-lg bg-red-600 px-4 py-3 text-white">
@@ -515,7 +528,8 @@ export function BbmAutomatikV2MotorsPage() {
 
         {/* Bürstenmotor (AN/AUS über Digital Output) */}
         {(() => {
-          const buerstenmotorOn = state?.output_states[OUTPUT.BUERSTENMOTOR] ?? false;
+          const buerstenmotorOn =
+            state?.output_states[OUTPUT.BUERSTENMOTOR] ?? false;
           return (
             <ControlCard title="Bürstenmotor">
               <div className="flex flex-col gap-4">
@@ -552,7 +566,6 @@ export function BbmAutomatikV2MotorsPage() {
             </ControlCard>
           );
         })()}
-
       </ControlGrid>
     </Page>
   );

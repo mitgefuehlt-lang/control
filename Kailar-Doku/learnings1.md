@@ -421,3 +421,84 @@ Die `expect()` Aufrufe bei `serde_json::to_value()` in `act.rs` wurden durch `un
 | Speed Presets | Definiert | Backend + UI | OK (neu) |
 | Buerstenmotor | PTO-Achse | Digital Output (DO4) | GEAENDERT |
 | Aktoren-Tab | - | Pneumatik, Ruettelmotor, Ampel | NEU |
+
+---
+
+## 12. EL2522 Beckhoff-Handbuch Learnings (2026-06-10)
+
+**Quelle:** Beckhoff "Documentation EL252x" v4.3 (PDF, 239 Seiten), https://download.beckhoff.com/download/document/io/ethercat-terminals/el252xen.pdf + Infosys-Kapitel unter https://infosys.beckhoff.com/content/1033/el252x/. Seitenangaben unten = PDF v4.3. Gegen unsere Implementierung (`ethercat-hal/src/devices/el2522.rs`, `machines/src/bbm_automatik_v2/new.rs` + `mod.rs`) abgeglichen.
+
+### 12.1 Was VERIFIZIERT KORREKT umgesetzt ist
+
+**PDO-Mapping (Handbuch S.191-194):** Unsere HAL nutzt exakt das Preset "2 Ch. Standard 32 Bit (MDP 253/511)":
+- RxPdo: 0x1600 (PTO Control Ch1), 0x1603 (PTO Target Ch1), 0x1605 (PTO Control Ch2), 0x1608 (PTO Target Ch2), 0x160B (ENC Control Ch1), 0x160D (ENC Control Ch2) — stimmt 1:1 mit der Beckhoff-Tabelle.
+- TxPdo: 0x1A00 (PTO Status Ch1), 0x1A01 (PTO Status Ch2), 0x1A03 (ENC Status Ch1), 0x1A05 (ENC Status Ch2) — stimmt.
+- Hinweis: Die Bits `Automatic Direction` / `Forward` / `Backward` (0x7000:04-06) existieren NUR in den "continuous position"-PDOs (0x1601/0x1606). In unserem Preset gibt es sie nicht — Richtung kommt in TDC ausschliesslich aus dem unsigned Vergleich target vs counter (daher der Virtual Zero Offset).
+
+**TDC-Ablauf (S.139-140, Kapitel 6.5.1.2):** Drei Phasen: Parameterization → Trip → Reset.
+- Trip start (enhanced mode): PDO `Target counter value` setzen, `Go counter = TRUE`, `Frequency value != 0` (= max. Fahrfrequenz, nur Betrag!).
+- **Kritische Regel:** "Go counter" muss **gleichzeitig oder VOR** dem Frequency value gesetzt werden. Sonst laeuft die Klemme im Speed-Mode los ohne TDC! Unsere Umsetzung: alle Felder im selben PDO-Frame (`move_to_position_mm` setzt go_counter+target+frequency in einem `set_output`) = "gleichzeitig" = OK.
+- Reset nach Zielerreichung: `Frequency value = 0` + `Go counter = FALSE`. Unsere Umsetzung in `update_hardware_monitor` (nach `select_end_counter`) macht genau das = OK.
+- Ziel erreicht → Klemme schaltet Frequenz selbst auf 0; Host erkennt das am Status-Bit `Sel. Ack/End counter` (0x6000:01). Unsere 5-Zyklen-Grace-Period (`axis_position_ignore_cycles`) ist noetig, weil das Bit vom vorherigen Move noch gesetzt sein kann — Beckhoff dokumentiert kein explizites Clear-Timing.
+
+**Set-Counter-Handshake (S.189):** `Set counter value` (0x7020:11) schreiben + `Set counter` (0x7020:03) setzen → Klemme uebernimmt, meldet `Set counter done` (0x6020:03). Unser Auto-Clear-Pfad in `update_hardware_monitor` (set_counter zuruecknehmen sobald done) ist korrekt — solange set_counter TRUE ist, klemmt die HW den Zaehler auf den Wert fest.
+
+**Frequenz-Codierung:** `direct_input_mode=true` + `frequency_factor=100` → 1 Digit = 100 × 10 mHz = **1 Hz** (0x8000:16, "Digit x 10mHz", S.201). Unser Code rechnet 1 Digit = 1 Hz = korrekt. Vorzeichen: Default `sign_amount_representation=false` = Zweierkomplement (0x8000:04) — deshalb funktionieren unsere negativen frequency_values im Speed-Mode (Homing) korrekt.
+
+**Richtung im Pulse-Direction-Mode (S.186-187):** Kanal B LOW = Rechtslauf, HIGH = Linkslauf. Moduliertes Signal auf Kanal A. (Verkabelung: A=PUL, B=DIR am CL57T/CL75t.)
+
+**Autoset threshold (0x8020:1A, S.189-190, 203):** MUSS 0 bleiben (= inaktiv, unser Default). Wenn >0: bei grosser Soll-Ist-Differenz uebernimmt die Klemme den Zielwert DIREKT in den Zaehler **ohne Pulse auszugeben** → stiller Positionssprung. Beckhoff selbst: "nur in besonderen Ausnahmefaellen verwenden". Niemals aktivieren.
+
+### 12.2 FUND: Rampen-Regel wird von `set_axis_acceleration` verletzt
+
+**Beckhoff-Regel (S.139-140):** Fuer praezises TDC-Anfahren muss die **fallende Rampe ~10% steiler** sein als die steigende. Grund: Die Klemme berechnet den Bremseinsatzpunkt aus der Anzahl Schritte der Beschleunigungsphase; die Bremsrampe muss etwas steiler sein, damit die `slowing down frequency` (0x8000:17, Default 50 Hz = 2,5 mm/s Schleichgang bei 20 P/mm) VOR dem Ziel erreicht wird und die Klemme nicht mit voller Fahrt in den Endpunkt laeuft.
+
+**Stand bei uns:**
+- `new.rs` CoE-Init: rising=2500, falling=2250 (= 0,9 × rising = 10% steiler) → **korrekt**.
+- `mod.rs::set_axis_acceleration` (Z.684-685): `falling_ms = rising_ms` ("Same as rising to avoid step loss") → **verletzt die Regel**. Sobald der User die Beschleunigung einmal im UI aendert, sind rising==falling und die Beckhoff-Bedingung ist weg. Moeglicher Effekt: Ziel wird mit Restgeschwindigkeit erreicht / Ueberfahren statt Schleichgang.
+- **TODO:** `falling_ms = (rising_ms as f32 * 0.9) as u16` (oder rising um 10% strecken). Vorsicht: der Kommentar "avoid step loss from aggressive braking" deutet auf einen frueheren Hardware-Befund hin — beim Fix Bremsverhalten am Motor verifizieren (CL75t-Treiber + Last). Hinweis: Das Handbuch ist hier selbst inkonsistent (Tabelle S.139 sagt "t3 > 1.1 × t1" mit Einheit [Δ/sec], Prosa sagt "downward ramp ~10% steeper"). Empirisch verhaelt sich die Konstante bei uns als "ms von 0 auf base_frequency_1" (2500 ms auf 5000 Hz = 2000 Hz/s = 100 mm/s² — gemessen und stimmig), also: steiler = KLEINERER Wert.
+
+**Rampen-Formel (empirisch validiert):** `ramp_time_ms = base_frequency_1 / accel_hz_s * 1000`. Unser `set_axis_acceleration` nutzt genau das mit hardcoded `base_freq = 5000.0` — muss synchron bleiben mit `base_frequency_1: 5000` in new.rs (bei Aenderung BEIDE Stellen!).
+
+### 12.3 Watchdog: Beckhoff-Fakten vs. unsere Config (SAFETY)
+
+**Beckhoff-Fakten (S.20-21 Kap. 4.3, S.201 Objekte):**
+- Der **SM-Watchdog** (SyncManager, Default 100 ms) wird bei jeder erfolgreichen Prozessdaten-Kommunikation zurueckgesetzt. Er loest aus, wenn laenger als die eingestellte Zeit keine Prozessdaten ankommen (z.B. Kabelbruch, Master-Absturz). Der Klemmen-State (OP) bleibt dabei unveraendert.
+- Verhalten beim Ausloesen (EL2522-spezifisch): Klemme gibt den **Manufacturer's oder User's switch-on value** aus (0x8000:09 waehlt; 0x8000:11 = User-Wert, Default 0 Hz).
+- Mit `emergency_ramp_active` (0x8000:02) faehrt die Klemme beim Watchdog-Ausloesen **per Rampe** (Zeitkonstante 0x8000:18) auf den switch-on value — kein harter Stopp.
+- Auslieferungszustand: Watchdog **AKTIV** (0x8000:03 = false).
+
+**NIRGENDS im Handbuch steht, dass der Watchdog fuer Travel Distance Control deaktiviert werden muss.** Die Behauptung in ki-doku ("Noetig fuer TDC") ist unbelegt — vermutlich ein Artefakt aus der Testphase 2026-01-28 ("watchdog_timer_deactive: true (fuer Tests)"). Da unser RT-Loop jeden Zyklus (~1 ms) PDOs schreibt, wird der SM-Watchdog (100 ms) im Normalbetrieb nie ausloesen — auch nicht waehrend eines laufenden TDC-Moves.
+
+**Empfohlene Safety-Config (Phase 1 umsetzen + Hardware-Test):**
+```rust
+watchdog_timer_deactive: false,        // Watchdog AKTIV (Auslieferungszustand)
+emergency_ramp_active: true,           // bei Ausloesung: Rampe statt harter Stopp
+user_switch_on_value_on_watchdog: true,// User-Wert ausgeben
+user_switch_on_value: 0,               // = 0 Hz → Motor stoppt
+ramp_time_constant_emergency: 1000,    // Brems-Rampe beim Watchdog (anpassen an Mechanik)
+```
+**Hardware-Test danach zwingend:** Achse im TDC-Move + EtherCAT-Kabel ziehen → Motor muss binnen ~100 ms + Rampe stehen. Und verifizieren, dass normale TDC-Moves weiterhin praezise laufen (Beweis, dass "Watchdog vs TDC" wirklich ein Mythos war). Falls die Klemme sich doch anders verhaelt: Befund hier dokumentieren.
+
+### 12.4 Weitere relevante Handbuch-Details
+
+- **Prozessdaten-Diagnose (S.186):** `WcState != 0` = Klemme nimmt nicht am Prozessdatenverkehr teil; `State != 8` = nicht in OP; `SyncError != 0` = keine gueltigen Prozessdaten (z.B. Drahtbruch); `TxPDO Toggle` toggelt bei jedem neuen Datensatz. → Das sind die fertigen Hardware-Signale fuer unsere geplante **Link-Loss-Detection** (Phase 1): WcState/Toggle im Control-Loop ueberwachen statt eigenen Heartbeat zu erfinden. `sync_error` ist bei uns schon im TxPdo gemappt, wird aber nirgends ausgewertet.
+- **Slowing down frequency (0x8000:17, Default 50 Hz):** Schleichgang-Frequenz am Ende jedes TDC-Moves = 2,5 mm/s bei 20 P/mm. Bestimmt die End-Praezision; bei Bedarf konfigurierbar machen.
+- **Base frequency 1 (0x8000:12, bei uns 5000 Hz):** dient als Rampen-Referenz UND als Frequenz-Obergrenze. Aktuelle Maximal-Speeds (150 mm/s = 3000 Hz) liegen darunter = OK. Bei schnelleren Achsen base_frequency_1 erhoehen + set_axis_acceleration-Konstante mitziehen (siehe 12.2).
+- **Micro increments (0x8020:0A):** bei uns aus = korrekt. Nur fuer Encoder-Simulation mit DC-Synchron relevant; interne 100-MHz-Grenze beachten.
+- **C-Track/Adapt A/B (0x8000:01):** Nur fuer Inkremental-Encoder-Modus relevant, nicht fuer Pulse-Direction. Unser Default false = OK.
+- **Auslieferungszustand der Klemme:** registriert sich als "2 Ch. Standard 32 Bit (MDP 253/511)" — genau unser Preset, daher kein PDO-Umkonfigurations-Risiko bei Klemmentausch.
+- **Continuous-Position-Modi (S.187-188):** EL2522 kann zyklussynchron Positionen abfahren (NC-Stil, braucht DC-Synchronous). Waere die Alternative zu TDC, wenn wir je interpolierte Bahnen brauchen — aktuell nicht noetig, TDC reicht fuer Punkt-zu-Punkt.
+- **CoE-Reset vor TDC-Parametrierung empfohlen (S.139):** "Restoring the delivery state" um Seiteneffekte auszuschliessen — fuer uns relevant nur bei hartnaeckigen Konfig-Problemen (Objekt 0x1011:01 = "load").
+
+### 12.5 Abgeleitete Massnahmen (in Phasen-Plan eingeordnet)
+
+1. **Phase 1 (Safety):** Watchdog reaktivieren mit emergency ramp (12.3) + Link-Loss via WcState/SyncError/TxPDO-Toggle (12.4) + Hardware-Test Kabelziehen. → **UMGESETZT 2026-06-10**, siehe ki-doku Session-Eintrag.
+2. **Phase 1/2:** `set_axis_acceleration` falling-Rampe 10% steiler als rising (12.2), am Motor verifizieren. → **UMGESETZT 2026-06-10** (falling = 0.9 × rising).
+3. **Backlog:** `sync_error`-Status-Bit pro Achse auswerten (steht schon im PDO, wird ignoriert); slowing_down_frequency ggf. konfigurierbar; base_freq-Konstante in mod.rs und new.rs zusammenfuehren (eine Quelle).
+
+### 12.6 Dead-Man-Logik fuer Jog: OBSOLET (Entscheidung 2026-06-10)
+
+Das TODO aus ki-doku 2026-05-27 ("Motor stoppt wenn 200 ms kein still-pressed-Signal kommt") stammt aus der Zeit, als Jog im Speed-Mode lief (Taste halten = fahren). Seit dem Virtual-Zero-Offset-Umbau (Commit d7bdf8cd) ist Jog ein **endlicher TDC-Move** (`JogRelative` = `move_to_position_mm` mit delta): Ein Klick faehrt exakt `step` mm und stoppt hardwareseitig — ein verlorenes "Loslassen"-Paket kann nichts mehr anrichten. **Dead-Man ist damit fuer Jog obsolet.**
+
+Verbleibender kontinuierlicher Modus: der bewusste START/STOP-Lauf (`SetAxisSpeedMmS`) auf der Motoren-Seite. Der ist ein explizites Run-Kommando (wie ein physischer Schalter), begrenzt durch Soft-Limits (nach Homing), Tuer-Interlock und Treiber-Alarme. Bei WLAN-Abriss des Tablets laeuft er weiter — bewusst akzeptiert; wer ungehomte Achsen im Dauerlauf betreibt, steht an der Maschine (Kalibrier-Szenario). Falls sich das als Problem zeigt: optionaler Max-Runtime-Timeout im Backend waere der naechste Schritt.

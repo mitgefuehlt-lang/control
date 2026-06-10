@@ -2622,3 +2622,80 @@ Stage 2 (Konsistenz): Feld-fuer-Feld Rust↔Zod abgeglichen — Tuple-Groessen [
 Stage 3 (Architektur): keine neuen Threads/Channels, kein `process::exit`, kein `Box::leak`. File-I/O laeuft synchron in der Mutation-Handler-Lock-Zone — JSON ist <2KB, Write <1ms, akzeptabel weil Mutations selten (User-Klicks).
 Stage 4 (Post-Commit): pro Commit `git diff HEAD~1 --name-only` — Rust und TS immer beide drin wenn beide betroffen.
 Stage 5 (Post-Deploy): `journalctl -u qitech-control-server --since '60 seconds ago'` zeigt `Group in OP state` + `Loaded calibration from /var/lib/qitech/bbm-automatik-v2-calibration.json` + keine `error/panic/closed channel`. `curl -sI http://localhost:3001/ | grep cache-control` bestaetigt `no-store`.
+
+---
+
+## Session 2026-06-10: Beckhoff EL252x-Handbuch Deep-Dive (Vorbereitung Fehlersuche/Safety-Phase)
+
+**Kontext:** Vor dem geplanten systematischen Audit (Safety → Bugs → Vereinfachung → Features) wurde das Beckhoff-Handbuch EL252x v4.3 (PDF, 239 S.) kapitelweise extrahiert und gegen unsere Implementierung abgeglichen. **Ergebnis vollstaendig dokumentiert in `learnings1.md` Abschnitt 12** (PFLICHT-Lektuere, wird ohnehin jede Session geladen).
+
+**Kernergebnisse (Kurzfassung):**
+- PDO-Mapping, TDC-Ablauf (go_counter-Timing, Reset-Phase, select_end_counter), Set-Counter-Handshake, Frequenz-Codierung (1 Digit = 1 Hz bei factor=100), Zweierkomplement-Vorzeichen: alles **verifiziert korrekt** umgesetzt.
+- **FUND 1 (Safety):** Kein Beleg im Handbuch, dass der Watchdog fuer TDC deaktiviert werden muss — die bisherige Annahme stammt aus der Testphase 2026-01-28. Empfohlene Config: Watchdog aktiv + `emergency_ramp_active` + `user_switch_on_value=0` → Klemme bremst bei Kommunikationsausfall selbststaendig auf 0 Hz. Hardware-Test (Kabel ziehen) noetig.
+- **FUND 2 (Bug):** `set_axis_acceleration` in mod.rs setzt `falling_ms = rising_ms` und verletzt damit die Beckhoff-Regel "fallende Rampe ~10% steiler" (noetig damit die slowing-down-frequency vor dem Ziel erreicht wird). new.rs-Init (2500/2250) ist korrekt, wird aber vom ersten UI-Beschleunigungs-Set ueberschrieben.
+- **FUND 3 (Link-Loss):** Beckhoff liefert fertige Diagnose-Signale (WcState, SyncError, TxPDO Toggle) — Basis fuer die geplante Link-Loss-Detection; `sync_error` ist bei uns bereits im PDO gemappt, wird aber nie ausgewertet.
+- Quelle: https://download.beckhoff.com/download/document/io/ethercat-terminals/el252xen.pdf (Text per pypdf extrahierbar, Seitenzahlen in learnings1.md §12).
+
+---
+
+## Session 2026-06-10 #2: Phase 1 Safety-Paket implementiert
+
+**Kontext:** Umsetzung der Safety-Phase aus dem Audit-Plan, basierend auf den Handbuch-Learnings (learnings1.md §12).
+
+### 1) EL2522-Watchdog reaktiviert (new.rs, alle 3 aktiven Kanaele)
+- `watchdog_timer_deactive: false` (Auslieferungszustand, SM-Watchdog 100 ms)
+- `emergency_ramp_active: true` + `ramp_time_constant_emergency: 1000` + `user_switch_on_value_on_watchdog: true` + `user_switch_on_value: 0`
+- Verhalten: Bei Kommunikationsausfall (Kabelbruch, Server-Crash) bremst die Klemme SELBSTSTAENDIG per Rampe auf 0 Hz — keine Software noetig. Die alte Annahme "Watchdog muss fuer TDC aus sein" war unbelegt (Testphasen-Artefakt 2026-01-28).
+- **Hardware-Test zwingend:** Achse fahren + EtherCAT-Kabel ziehen → Motor muss nach ~100 ms + 1s-Rampe stehen. Und: normale TDC-Moves muessen weiterhin praezise laufen.
+
+### 2) TDC-Bremsrampen-Fix (mod.rs set_axis_acceleration)
+- Vorher: `falling_ms = rising_ms` → verletzt Beckhoff-Regel (S.139: fallende Rampe ~10% steiler, sonst Ziel-Anfahrt mit voller Fahrt statt Schleichgang)
+- Jetzt: `falling_ms = 0.9 × rising_ms`. CoE-Init in new.rs (2500/2250) war schon korrekt.
+
+### 3) Tuer-Interlock erweitert (mod.rs check_door_interlock)
+- Buerstenmotor ist jetzt eigener Ausloeser (rotierende Buerste = Gefahr auch ohne Achsbewegung)
+- Bei Ausloesung gehen jetzt zusaetzlich aus: Buerstenmotor (DO4), Pneumatik (DO6) — vorher nur Achsen + Ruettler
+
+### 4) Step-Loss-Reaktion (mod.rs, api.rs, new.rs + Frontend)
+- Neue Konstante `STEP_LOSS_INVALIDATE_PULSES = 20` (1 mm)
+- Endet ein TDC-Move >1 mm neben dem Ziel: `axis_step_loss[i] = true`, `axis_homed[i] = false` (erzwingt Re-Referenzierung, deaktiviert die nun unzuverlaessigen Soft-Limits), laufende Auto-Sequenz wird abgebrochen
+- Flag wird NUR durch erfolgreiches Re-Homing geloescht
+- StateEvent +`axis_step_loss: [bool; 3]` ↔ Zod-Schema synchron; oranges Banner auf der Motoren-Seite ("SCHRITTVERLUST ... BITTE NEU REFERENZIEREN")
+- Kleine Abweichungen (3-20 Pulse) loggen weiterhin nur eine Warnung
+
+### 5) EtherCAT Bus-Degradation-Watchdog (server/src/loop.rs)
+- `tx_rx`-Hardfehler (Kabel am PC gezogen) fuehrte schon immer zu Loop-Abbruch → `exit(1)` → systemd-Restart. NEU abgedeckt: weiche Fehler, bei denen Frames noch zirkulieren:
+  - Subdevice verlaesst OP-State (`TxRxResponse::all_op()`)
+  - Working Counter faellt unter die gesunde Baseline (E-Bus-Bruch hinter dem Koppler)
+- Baseline = WKC des ersten Zyklus nach Setup (selbstkorrigierend nach oben), Schwelle: 100 Zyklen in Folge degradiert (~30 ms bei 300 µs Zyklus) → Fehler → exit(1) → sauberer systemd-Restart (gleiches Muster wie Init-Timeout)
+- Motoren stoppen waehrenddessen hardwareseitig via EL2522-Watchdog (Punkt 1) — Software-Restart raeumt nur den State auf
+- systemd-Check: `RestartSec=10s` + Default-StartLimit (5 in 10s) → Restart-Schleife bei dauerhaft gezogenem Kabel laeuft NIE ins StartLimit (10s Abstand > Limit-Fenster)
+
+### 6) Dead-Man fuer Jog: als obsolet dokumentiert
+Siehe learnings1.md §12.6 — Jog ist seit d7bdf8cd ein endlicher TDC-Move, verlorene "Loslassen"-Pakete sind wirkungslos. Kontinuierlicher START/STOP-Lauf bleibt bewusst ohne Heartbeat.
+
+### 7) Nebenbei-Fix: ControlGrid columns={1}
+`BbmAutomatikV2KalibrierungPage.tsx` nutzte `columns={1}`, aber `ControlGrid` erlaubte nur `2 | 3` → vorbestehender tsc-Fehler auf master (CI fuer Electron laeuft auf Branch `main`, deshalb nie aufgefallen). Prop-Typ + cva-Variante um `1` erweitert.
+
+### Geaenderte Dateien
+| Datei | Aenderung |
+|-------|-----------|
+| `machines/src/bbm_automatik_v2/new.rs` | Watchdog-Config 3 Kanaele, `axis_step_loss` Init |
+| `machines/src/bbm_automatik_v2/mod.rs` | Rampen-Fix, Interlock-Erweiterung, Step-Loss-Logik + Konstante + Struct-Feld |
+| `machines/src/bbm_automatik_v2/api.rs` | StateEvent +`axis_step_loss` |
+| `server/src/loop.rs` | BusHealth, degraded-cycles-Watchdog, Baseline-Reset bei neuem Setup |
+| `electron/.../bbmAutomatikV2Namespace.ts` | Zod +`axis_step_loss` |
+| `electron/.../BbmAutomatikV2MotorsPage.tsx` | Step-Loss-Banner |
+| `electron/src/control/ControlGrid.tsx` | columns: 1 erlaubt |
+
+### Validierung
+- Stufe 1/2 (Vollstaendigkeit/Konsistenz): StateEvent-Feld ↔ Zod-Tuple [3] im selben Commit; keine neuen Mutations
+- Stufe 3 (Architektur): keine neuen Threads/Channels/Box::leak; Loop-Abbruch nutzt das etablierte exit(1)+systemd-Muster
+- `npx tsc --noEmit` ✓, Prettier ✓; cargo build laeuft im fast-deploy CI (kein lokales cargo auf Windows)
+- Stufe 4/5 + Hardware-Tests: siehe Checkliste im Chat / unten
+
+### Offene Hardware-Tests (von Lea an der Maschine durchzufuehren)
+1. **Kabelzieh-Test:** Achse im Dauerlauf (START, z.B. 10 mm/s) → EtherCAT-Kabel am Mini-PC ziehen → Motor muss binnen ~1,1 s stehen (100 ms Watchdog + 1 s Emergency-Rampe). Server-Log danach: "EtherCAT bus degraded" oder tx_rx-Fehler + Neustart + "Group in OP state".
+2. **TDC-Praezisions-Test:** Nach Deploy normale Position-Moves fahren (z.B. 43,5 mm) → Achse muss weiterhin exakt stoppen (beweist: Watchdog-aktiv stoert TDC nicht). Falls Moves NICHT mehr praezise: Befund dokumentieren, watchdog_timer_deactive zuruecksetzen, neu bewerten.
+3. **Tuer-Test:** Buerstenmotor AN (keine Achse faehrt) → Tuer oeffnen → Buerste muss ausgehen + rotes Banner.
+4. **Rampen-Test:** Beschleunigung im UI aendern (z.B. auf 100 mm/s²) → Moves muessen weiterhin sauber und praezise stoppen (falling-Rampe jetzt 10% steiler).

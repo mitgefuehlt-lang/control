@@ -23,6 +23,9 @@ pub struct StateEvent {
     pub axis_soft_limit_max: [Option<f32>; 3],
     pub axis_soft_limit_min: [Option<f32>; 3],
     pub axis_alarm_active: [bool; 3],
+    /// true when a TDC move ended >1 mm away from its target — position
+    /// integrity lost, axis must be re-homed (clears the flag).
+    pub axis_step_loss: [bool; 3],
     pub door_interlock_active: bool,
     pub auto_running: bool,
     pub auto_current_set: u32,
