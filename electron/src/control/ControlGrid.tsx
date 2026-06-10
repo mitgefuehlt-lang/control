@@ -3,7 +3,7 @@ import React from "react";
 
 type Props = {
   children?: React.ReactNode;
-  columns?: 2 | 3;
+  columns?: 1 | 2 | 3;
 };
 
 export function ControlGrid({ children, columns = 3 }: Props) {
@@ -19,6 +19,7 @@ const controlGridStyle = cva(
   {
     variants: {
       columns: {
+        1: "lg:grid-cols-1 xl:grid-cols-1",
         2: "xl:grid-cols-2",
         3: "xl:grid-cols-3",
       },
