@@ -2694,6 +2694,13 @@ Siehe learnings1.md §12.6 — Jog ist seit d7bdf8cd ein endlicher TDC-Move, ver
 - `npx tsc --noEmit` ✓, Prettier ✓; cargo build laeuft im fast-deploy CI (kein lokales cargo auf Windows)
 - Stufe 4/5 + Hardware-Tests: siehe Checkliste im Chat / unten
 
+### Deploy-Status (Stand 2026-06-10 Session-Ende)
+
+- Commits `d38b97b8` (ControlGrid-Fix) + `6ae3496c` (Phase-1-Paket) auf origin/master gepusht.
+- **Erster fast-deploy-Versuch (Run 27266652524) scheiterte**, weil der Mini-PC waehrend des Deploys AUS war. Dabei Workflow-Schwaeche entdeckt: das `|| true` am Deploy-SSH-Block verschluckt Verbindungsfehler — der Workflow lief weiter als waere deployed worden. **Backlog:** Deploy-Schritt ohne `|| true` absichern (Reboot-bedingten SSH-Abbruch gezielt behandeln statt pauschal alles zu schlucken).
+- **Zweiter Versuch (Run 27267767078) ERFOLGREICH** inkl. Health-Check nach Reboot (Services sshd/qitech-control-server/dnsmasq aktiv) → neuer Code laeuft auf dem Geraet.
+- **Noch offen (naechste Session):** Stufe-5-Logpruefung per SSH (journalctl: "Group in OP state", "Loaded calibration", keine error/panic/closed channel) — Mini-PC war danach wieder offline. Danach die Hardware-Tests unten.
+
 ### Offene Hardware-Tests (von Lea an der Maschine durchzufuehren)
 1. **Kabelzieh-Test:** Achse im Dauerlauf (START, z.B. 10 mm/s) → EtherCAT-Kabel am Mini-PC ziehen → Motor muss binnen ~1,1 s stehen (100 ms Watchdog + 1 s Emergency-Rampe). Server-Log danach: "EtherCAT bus degraded" oder tx_rx-Fehler + Neustart + "Group in OP state".
 2. **TDC-Praezisions-Test:** Nach Deploy normale Position-Moves fahren (z.B. 43,5 mm) → Achse muss weiterhin exakt stoppen (beweist: Watchdog-aktiv stoert TDC nicht). Falls Moves NICHT mehr praezise: Befund dokumentieren, watchdog_timer_deactive zuruecksetzen, neu bewerten.
