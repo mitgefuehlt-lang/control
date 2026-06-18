@@ -233,6 +233,7 @@ impl MachineNewTrait for BbmAutomatikV2 {
                 ],
                 axis_homing_retract_target: [0; 3],
                 axis_homed: [false; 3],
+                schieber_home_pending: false,
                 axis_step_loss: [false; 3],
                 axis_position_offset: [
                     crate::bbm_automatik_v2::POSITION_OFFSET_PULSES,

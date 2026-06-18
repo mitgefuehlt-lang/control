@@ -493,6 +493,12 @@ pub struct BbmAutomatikV2 {
     /// Soft limits are only enforced after this flag is set.
     pub axis_homed: [bool; 3],
 
+    /// A Schieber-homing request that was deferred because the Drücker was not
+    /// yet referenced+retracted. The Drücker MUST home before the Schieber
+    /// (during homing the interlocks are bypassed, so a simultaneous home
+    /// could collide). Auto-starts the Schieber home once the Drücker is safe.
+    pub schieber_home_pending: bool,
+
     /// true when a TDC move ended further than
     /// [`STEP_LOSS_INVALIDATE_PULSES`] from its target. Cleared only by a
     /// successful re-homing of the axis. While set, `axis_homed` is false.
@@ -687,6 +693,8 @@ impl BbmAutomatikV2 {
             output.frequency_value = 0;
             self.axes[i].set_output(output);
         }
+        // A full stop also cancels a queued Schieber home.
+        self.schieber_home_pending = false;
         self.emit_state();
     }
 
@@ -1235,6 +1243,31 @@ impl BbmAutomatikV2 {
 
     /// Start homing sequence for an axis
     /// Sequence: 1) Move negative until sensor, 2) Retract 2mm, 3) Set position to 0
+    /// True when it is safe to home the Schieber: the Drücker is referenced
+    /// (homed), not currently homing, and retracted to/below its start. Until
+    /// then a Schieber-home request is deferred (Drücker-before-Schieber).
+    fn druecker_safe_for_schieber_home(&self) -> bool {
+        self.axis_homed[axes::DRUECKER]
+            && self.axis_homing_phase[axes::DRUECKER] == HomingPhase::Idle
+            && self.current_logical_mm(axes::DRUECKER)
+                <= self.druecker_start_threshold_mm() + SCHIEBER_INTERLOCK_TOLERANCE_MM
+    }
+
+    /// Starts a deferred Schieber home once the Drücker has become safe.
+    /// Called each act() cycle after update_homing.
+    pub fn process_pending_schieber_home(&mut self) {
+        if self.schieber_home_pending
+            && self.axis_homing_phase[axes::SCHIEBER] == HomingPhase::Idle
+            && self.druecker_safe_for_schieber_home()
+        {
+            self.schieber_home_pending = false;
+            tracing::info!(
+                "[BbmAutomatikV2] Drücker referenziert - starte aufgeschobenes Schieber-Homing"
+            );
+            self.start_homing(axes::SCHIEBER);
+        }
+    }
+
     pub fn start_homing(&mut self, index: usize) {
         if index >= self.axes.len() {
             tracing::warn!(
@@ -1247,6 +1280,20 @@ impl BbmAutomatikV2 {
         // If already homing, ignore
         if self.axis_homing_phase[index] != HomingPhase::Idle {
             tracing::warn!("[BbmAutomatikV2] Axis {} already homing", index);
+            return;
+        }
+
+        // SAFETY: the Drücker MUST home before the Schieber. During homing the
+        // anti-collision interlocks are bypassed (axes drive blindly to their
+        // sensors), so homing the Schieber while the Drücker is not yet
+        // referenced+retracted could crash them. Defer the Schieber home until
+        // the Drücker is safe; it auto-starts via process_pending_schieber_home().
+        if index == axes::SCHIEBER && !self.druecker_safe_for_schieber_home() {
+            self.schieber_home_pending = true;
+            tracing::info!(
+                "[BbmAutomatikV2] Schieber-Homing aufgeschoben: Drücker muss zuerst referenzieren"
+            );
+            self.emit_state();
             return;
         }
 

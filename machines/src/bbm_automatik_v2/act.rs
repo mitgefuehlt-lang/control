@@ -41,6 +41,10 @@ impl MachineAct for BbmAutomatikV2 {
         // Check homing status (reference switches)
         self.update_homing();
 
+        // Start a deferred Schieber home once the Drücker is referenced
+        // (Drücker-before-Schieber safety rule).
+        self.process_pending_schieber_home();
+
         // Auto-sequence state machine
         let auto_changed = self.update_auto_sequence();
         if auto_changed {
