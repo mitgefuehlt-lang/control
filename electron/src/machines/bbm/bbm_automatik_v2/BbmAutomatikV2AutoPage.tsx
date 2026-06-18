@@ -20,6 +20,8 @@ export function BbmAutomatikV2AutoPage() {
     isDoorInterlockActive,
     isAutoRunning,
     isAnyAlarmActive,
+    areAllAxesHomed,
+    getUnhomedAxisNames,
     startAutoSequence,
     stopAutoSequence,
   } = useBbmAutomatikV2();
@@ -41,7 +43,11 @@ export function BbmAutomatikV2AutoPage() {
 
   // Door sensor
   const doorClosed = liveValues?.input_states[INPUT.TUER] ?? false;
-  const canStart = doorClosed && !hasAlarm && !autoRunning && !doorInterlock;
+  // Global homing gate: all axes must be referenced before any run.
+  const allHomed = areAllAxesHomed();
+  const unhomedAxes = getUnhomedAxisNames();
+  const canStart =
+    doorClosed && !hasAlarm && !autoRunning && !doorInterlock && allHomed;
 
   const handleStart = () => {
     startAutoSequence(speedPreset, magazinSets);
@@ -164,6 +170,13 @@ export function BbmAutomatikV2AutoPage() {
             {hasAlarm && (
               <div className="rounded bg-red-100 p-3 font-semibold text-red-800">
                 Treiber-Alarm aktiv - bitte zuerst zurücksetzen!
+              </div>
+            )}
+
+            {!allHomed && (
+              <div className="rounded bg-amber-100 p-3 font-semibold text-amber-900">
+                Achsen nicht referenziert - bitte zuerst referenzieren (HOME):{" "}
+                {unhomedAxes.join(", ")}
               </div>
             )}
 

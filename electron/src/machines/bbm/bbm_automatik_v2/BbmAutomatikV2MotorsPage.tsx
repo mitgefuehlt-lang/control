@@ -72,6 +72,7 @@ function AxisControl({
     getAxisPositionMm,
     getAxisSoftLimitMax,
     getAxisAlarmActive,
+    areAllAxesHomed,
     isDisabled,
     isLoading,
     MAX_SPEED_MM_S,
@@ -81,6 +82,9 @@ function AxisControl({
   } = useBbmAutomatikV2();
 
   const isAlarm = getAxisAlarmActive(axisIndex);
+
+  // Global homing gate: no movement (except homing) until all axes homed.
+  const allHomed = areAllAxesHomed();
 
   const softLimitMax = getAxisSoftLimitMax(axisIndex);
 
@@ -185,7 +189,7 @@ function AxisControl({
                   variant={direction === "ccw" ? "default" : "outline"}
                   icon="lu:RotateCcw"
                   onClick={() => setDirection("ccw")}
-                  disabled={isDisabled || isMotorCommanded}
+                  disabled={isDisabled || isMotorCommanded || !allHomed}
                   className={`h-10 flex-1 ${direction === "ccw" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
                 >
                   CCW
@@ -194,7 +198,7 @@ function AxisControl({
                   variant={direction === "cw" ? "default" : "outline"}
                   icon="lu:RotateCw"
                   onClick={() => setDirection("cw")}
-                  disabled={isDisabled || isMotorCommanded}
+                  disabled={isDisabled || isMotorCommanded || !allHomed}
                   className={`h-10 flex-1 ${direction === "cw" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
                 >
                   CW
@@ -224,7 +228,7 @@ function AxisControl({
               variant="default"
               icon="lu:Play"
               onClick={handleStartRpm}
-              disabled={isDisabled || isMotorCommanded}
+              disabled={isDisabled || isMotorCommanded || !allHomed}
               isLoading={isLoading}
               className="h-12 flex-1 bg-green-600 hover:bg-green-700"
             >
@@ -354,7 +358,7 @@ function AxisControl({
             variant="default"
             icon="lu:Play"
             onClick={handleStartLinear}
-            disabled={isDisabled || isMotorCommanded}
+            disabled={isDisabled || isMotorCommanded || !allHomed}
             isLoading={isLoading}
             className="h-12 flex-1 bg-green-600 hover:bg-green-700"
           >
@@ -378,7 +382,7 @@ function AxisControl({
           <TouchButton
             variant="default"
             onClick={handleJogMinus}
-            disabled={isDisabled || isMotorCommanded}
+            disabled={isDisabled || isMotorCommanded || !allHomed}
             isLoading={isLoading}
             className="h-12 flex-1 bg-blue-600 hover:bg-blue-700"
           >
@@ -389,7 +393,7 @@ function AxisControl({
             variant="default"
             icon="lu:MapPin"
             onClick={handleMoveToPosition}
-            disabled={isDisabled || isMotorCommanded}
+            disabled={isDisabled || isMotorCommanded || !allHomed}
             isLoading={isLoading}
             className="h-12 flex-1 bg-blue-600 hover:bg-blue-700"
           >
@@ -399,7 +403,7 @@ function AxisControl({
           <TouchButton
             variant="default"
             onClick={handleJogPlus}
-            disabled={isDisabled || isMotorCommanded}
+            disabled={isDisabled || isMotorCommanded || !allHomed}
             isLoading={isLoading}
             className="h-12 flex-1 bg-blue-600 hover:bg-blue-700"
           >
@@ -462,6 +466,8 @@ export function BbmAutomatikV2MotorsPage() {
     isAnyAlarmActive,
     isDoorInterlockActive,
     isSchieberInterlockActive,
+    areAllAxesHomed,
+    getUnhomedAxisNames,
     setBuerstenmotor,
     state,
     isDisabled,
@@ -472,6 +478,8 @@ export function BbmAutomatikV2MotorsPage() {
   const hasAlarm = isAnyAlarmActive();
   const doorInterlock = isDoorInterlockActive();
   const schieberInterlock = isSchieberInterlockActive();
+  const allHomed = areAllAxesHomed();
+  const unhomedAxes = getUnhomedAxisNames();
 
   return (
     <Page>
@@ -492,6 +500,14 @@ export function BbmAutomatikV2MotorsPage() {
             .filter(Boolean)
             .join(", ")}{" "}
           - BITTE NEU REFERENZIEREN
+        </div>
+      )}
+
+      {/* Global homing gate: no movement until all axes referenced. */}
+      {!allHomed && (
+        <div className="mb-4 rounded-lg bg-amber-500 px-4 py-3 text-center text-lg font-bold text-black">
+          BEWEGUNG GESPERRT - Erst referenzieren (HOME):{" "}
+          {unhomedAxes.join(", ")}
         </div>
       )}
 

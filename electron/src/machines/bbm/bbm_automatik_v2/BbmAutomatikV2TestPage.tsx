@@ -17,6 +17,8 @@ export function BbmAutomatikV2TestPage() {
     isDoorInterlockActive,
     isAnyAlarmActive,
     getMissingAutoTeachPositions,
+    areAllAxesHomed,
+    getUnhomedAxisNames,
     startAutoSequence,
     stopAutoSequence,
     stopAllAxes,
@@ -33,8 +35,11 @@ export function BbmAutomatikV2TestPage() {
   // until all required positions are set (mirrors the backend guard).
   const missingTeach = getMissingAutoTeachPositions();
   const teachComplete = missingTeach.length === 0;
+  // Global homing gate: all axes must be referenced before any run.
+  const allHomed = areAllAxesHomed();
+  const unhomedAxes = getUnhomedAxisNames();
   const canStart =
-    !autoRunning && !doorInterlock && !hasAlarm && teachComplete;
+    !autoRunning && !doorInterlock && !hasAlarm && teachComplete && allHomed;
 
   const handleSequence1x = () => {
     // 1x befüllen = 1 set (runs 1 block of 19 cycles)
@@ -66,6 +71,18 @@ export function BbmAutomatikV2TestPage() {
       {doorInterlock && (
         <div className="mb-4 animate-pulse rounded-lg bg-red-600 px-4 py-3 text-center text-lg font-bold text-white">
           TÜR OFFEN - NOTFALL-STOPP AKTIV
+        </div>
+      )}
+
+      {/* Global homing gate: all axes must be referenced before a run. */}
+      {!allHomed && (
+        <div className="mb-4 rounded-lg bg-amber-500 px-4 py-3 text-black">
+          <div className="font-bold">
+            Start gesperrt - Achsen nicht referenziert
+          </div>
+          <div className="text-sm">
+            Bitte zuerst referenzieren (Reset/HOME): {unhomedAxes.join(", ")}
+          </div>
         </div>
       )}
 

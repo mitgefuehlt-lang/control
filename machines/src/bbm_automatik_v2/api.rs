@@ -20,6 +20,9 @@ pub struct StateEvent {
     pub axis_target_positions: [i32; 3], // Signed to support negative positions
     pub axis_position_mode: [bool; 3],
     pub axis_homing_active: [bool; 3],
+    /// true per axis once homing has completed (revoked on step-loss).
+    /// While any axis is false, ALL movement is blocked (global homing gate).
+    pub axis_homed: [bool; 3],
     pub axis_soft_limit_max: [Option<f32>; 3],
     pub axis_soft_limit_min: [Option<f32>; 3],
     pub axis_alarm_active: [bool; 3],

@@ -555,6 +555,7 @@ impl BbmAutomatikV2 {
             axis_target_positions: self.axis_target_positions,
             axis_position_mode: self.axis_position_mode,
             axis_homing_active: homing_active,
+            axis_homed: self.axis_homed,
             axis_soft_limit_max: self.axis_soft_limit_max_mm,
             axis_soft_limit_min: self.axis_soft_limit_min_mm,
             axis_alarm_active: self.axis_alarm_active,
@@ -637,6 +638,14 @@ impl BbmAutomatikV2 {
 
     /// Set axis speed (frequency value for PTO)
     pub fn set_axis_speed(&mut self, index: usize, speed: i32) {
+        // Global homing gate: no movement until all axes are homed.
+        if speed != 0 && !self.all_axes_homed() {
+            tracing::warn!(
+                "[BbmAutomatikV2] Frequenz Achse {} blockiert: nicht alle Achsen referenziert",
+                index
+            );
+            return;
+        }
         if index < self.axis_speeds.len() {
             self.axis_speeds[index] = speed;
             self.axes[index].set_frequency(speed);
@@ -695,6 +704,15 @@ impl BbmAutomatikV2 {
     /// Positive = forward, Negative = backward
     /// For linear axes with ball screw
     pub fn set_axis_speed_mm_s(&mut self, index: usize, mm_per_s: f32) {
+        // Global homing gate: no movement until all axes are homed. A zero
+        // command (stop) is always allowed.
+        if mm_per_s != 0.0 && !self.all_axes_homed() {
+            tracing::warn!(
+                "[BbmAutomatikV2] Speed Achse {} blockiert: nicht alle Achsen referenziert",
+                index
+            );
+            return;
+        }
         // Schieber anti-collision interlock: block a non-zero Schieber speed
         // command while the Drücker is below its start. A zero command
         // (stop) is always allowed.
@@ -716,6 +734,14 @@ impl BbmAutomatikV2 {
     /// Set target axis speed in RPM (hardware ramp handles transition)
     /// For rotation axes without ball screw
     pub fn set_axis_speed_rpm(&mut self, index: usize, rpm: f32) {
+        // Global homing gate: no movement until all axes are homed.
+        if rpm != 0.0 && !self.all_axes_homed() {
+            tracing::warn!(
+                "[BbmAutomatikV2] RPM Achse {} blockiert: nicht alle Achsen referenziert",
+                index
+            );
+            return;
+        }
         if index < self.axis_target_speeds.len() {
             let hz = mechanics::rpm_to_hz(rpm);
             self.axis_target_speeds[index] = hz;
@@ -781,6 +807,15 @@ impl BbmAutomatikV2 {
     /// physically correct direction.
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
         if index >= self.axes.len() {
+            return;
+        }
+
+        // Global homing gate: block all movement until every axis is homed.
+        if !self.all_axes_homed() {
+            tracing::warn!(
+                "[BbmAutomatikV2] Bewegung Achse {} blockiert: nicht alle Achsen referenziert",
+                index
+            );
             return;
         }
 
@@ -1353,6 +1388,18 @@ impl BbmAutomatikV2 {
         false
     }
 
+    // ============ Globaler Homing-Gate ============
+
+    /// True only when ALL axes have completed homing. Until then NO axis is
+    /// allowed to move (manual jog / move-to-position / speed / auto). Homing
+    /// itself drives the axes via speed mode written directly to
+    /// `axis_target_speeds`, bypassing the guarded movement entry points, so
+    /// referencing always remains possible. A step-loss revokes an axis'
+    /// `axis_homed` flag, which re-arms this gate until it is re-referenced.
+    pub fn all_axes_homed(&self) -> bool {
+        self.axis_homed.iter().all(|&h| h)
+    }
+
     // ============ Schieber ⟷ Drücker Anti-Collision Interlock ============
 
     /// The Drücker position (mm) below which the Schieber must not travel.
@@ -1586,6 +1633,12 @@ impl BbmAutomatikV2 {
         }
         if self.auto_sequence.is_some() {
             tracing::warn!("[BbmAutomatikV2] Cannot start: already running");
+            return;
+        }
+        if !self.all_axes_homed() {
+            tracing::warn!(
+                "[BbmAutomatikV2] Cannot start: not all axes homed (referencing required)"
+            );
             return;
         }
 

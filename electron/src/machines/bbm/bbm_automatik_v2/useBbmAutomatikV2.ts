@@ -499,6 +499,20 @@ function useBbmAutomatik(
     return stateOptimistic.value?.data.axis_homing_active[index] ?? false;
   };
 
+  // Global homing gate: until ALL axes have completed homing, the backend
+  // blocks every axis movement (manual + auto). Homing itself stays allowed.
+  const areAllAxesHomed = (): boolean => {
+    const homed = stateOptimistic.value?.data.axis_homed;
+    return homed ? homed.every((h) => h) : false;
+  };
+
+  // Names of axes that still need referencing (for UI hints).
+  const getUnhomedAxisNames = (): string[] => {
+    const homed = stateOptimistic.value?.data.axis_homed;
+    if (!homed) return [...AXIS_NAMES];
+    return AXIS_NAMES.filter((_, i) => !homed[i]);
+  };
+
   // Helper to get axis speed in mm/s (for linear axes)
   const getAxisSpeedMmS = (index: number): number | undefined => {
     const speedHz = stateOptimistic.value?.data.axis_speeds[index];
@@ -902,6 +916,8 @@ function useBbmAutomatik(
     startHoming,
     cancelHoming,
     isAxisHoming,
+    areAllAxesHomed,
+    getUnhomedAxisNames,
 
     // Motor helper functions
     getAxisSpeedMmS,
