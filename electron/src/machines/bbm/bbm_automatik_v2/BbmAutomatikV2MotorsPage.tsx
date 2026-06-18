@@ -466,6 +466,7 @@ export function BbmAutomatikV2MotorsPage() {
     isAnyAlarmActive,
     isDoorInterlockActive,
     isSchieberInterlockActive,
+    isAutoRunning,
     areAllAxesHomed,
     getUnhomedAxisNames,
     setBuerstenmotor,
@@ -477,7 +478,10 @@ export function BbmAutomatikV2MotorsPage() {
 
   const hasAlarm = isAnyAlarmActive();
   const doorInterlock = isDoorInterlockActive();
-  const schieberInterlock = isSchieberInterlockActive();
+  // Show the manual interlock banner only outside the auto sequence: during
+  // auto the Drücker is extended by design and the Schieber is idle, so the
+  // (true) interlock state is not an operator-facing problem there.
+  const schieberInterlock = isSchieberInterlockActive() && !isAutoRunning();
   const allHomed = areAllAxesHomed();
   const unhomedAxes = getUnhomedAxisNames();
 
