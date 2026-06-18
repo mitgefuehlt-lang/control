@@ -511,11 +511,12 @@ export function BbmAutomatikV2MotorsPage() {
         </div>
       )}
 
-      {/* Schieber interlock banner: Drücker retracted below its start
-          position blocks all Schieber travel (anti-collision). */}
+      {/* Schieber interlock banner: Drücker extended above its start
+          position blocks manual Schieber travel (anti-collision). */}
       {schieberInterlock && (
         <div className="mb-4 rounded-lg bg-amber-500 px-4 py-3 text-center text-lg font-bold text-black">
-          SCHIEBER GESPERRT - Drücker unter Start-Position (Kollisionsschutz)
+          SCHIEBER GESPERRT - Drücker ausgefahren (über Start-Position) -
+          Kollisionsschutz
         </div>
       )}
 

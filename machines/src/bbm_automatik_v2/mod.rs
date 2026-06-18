@@ -137,10 +137,10 @@ pub mod auto_positions {
     pub const DRUECKER_START_FALLBACK: f32 = 60.0;
 }
 
-/// Tolerance (mm) below the Drücker start threshold before the Schieber
-/// interlock engages. Keeps the interlock from flapping when the Drücker
-/// sits exactly at its teached start (within normal TDC precision) during
-/// an auto cycle.
+/// Tolerance (mm) above the Drücker start before the Schieber interlock
+/// engages. Keeps the interlock from flapping when the Drücker sits exactly
+/// at its teached start (within normal TDC precision); only a clear advance
+/// beyond start (into the work area) blocks the Schieber.
 pub const SCHIEBER_INTERLOCK_TOLERANCE_MM: f32 = 0.5;
 
 /// Cycle step within one fill cycle
@@ -718,7 +718,7 @@ impl BbmAutomatikV2 {
         // (stop) is always allowed.
         if index == axes::SCHIEBER && mm_per_s != 0.0 && self.schieber_interlock_active() {
             tracing::warn!(
-                "[BbmAutomatikV2] Schieber-Speed blockiert (Interlock): Drücker unter Start ({:.1} mm)",
+                "[BbmAutomatikV2] Schieber-Speed blockiert (Interlock): Drücker über Start/ausgefahren ({:.1} mm)",
                 self.current_logical_mm(axes::DRUECKER)
             );
             return;
@@ -819,12 +819,13 @@ impl BbmAutomatikV2 {
             return;
         }
 
-        // Schieber anti-collision interlock: refuse any Schieber move while
-        // the Drücker is retracted below its start position. Covers manual
-        // Fahre/Jog/Goto and the auto cycle (all route through here).
+        // Schieber anti-collision interlock: refuse a MANUAL Schieber move
+        // while the Drücker is extended above its start (collision risk).
+        // The auto sequence is exempt (schieber_interlock_active is false
+        // while a sequence runs), so its parallel return is unaffected.
         if index == axes::SCHIEBER && self.schieber_interlock_active() {
             tracing::warn!(
-                "[BbmAutomatikV2] Schieber-Move blockiert (Interlock): Drücker unter Start ({:.1} mm)",
+                "[BbmAutomatikV2] Schieber-Move blockiert (Interlock): Drücker über Start/ausgefahren ({:.1} mm)",
                 self.current_logical_mm(axes::DRUECKER)
             );
             return;
@@ -1402,35 +1403,41 @@ impl BbmAutomatikV2 {
 
     // ============ Schieber ⟷ Drücker Anti-Collision Interlock ============
 
-    /// The Drücker position (mm) below which the Schieber must not travel.
-    /// Uses the teached Drücker start; falls back to
-    /// [`auto_positions::DRUECKER_START_FALLBACK`] when not yet teached so
-    /// the safety rule is never silently off.
+    /// The Drücker start position (mm). The Schieber must not travel while
+    /// the Drücker is ADVANCED BEYOND this (i.e. extended out of its start
+    /// toward its target into the shared work area). Uses the teached
+    /// Drücker start; falls back to [`auto_positions::DRUECKER_START_FALLBACK`]
+    /// when not yet teached so the safety rule is never silently off.
     pub fn druecker_start_threshold_mm(&self) -> f32 {
         self.teach_positions[axes::DRUECKER]
             .start_mm
             .unwrap_or(auto_positions::DRUECKER_START_FALLBACK)
     }
 
-    /// True when the Schieber is currently blocked from moving because the
-    /// Drücker is retracted below its start position (mechanical collision
-    /// risk). Only armed once the Drücker is homed — before that its
-    /// position is unknown and the rule can't be enforced. Schieber HOMING
-    /// is intentionally not gated by this (see [`Self::enforce_schieber_interlock`]).
+    /// True when MANUAL Schieber travel is currently blocked because the
+    /// Drücker is extended ABOVE its start position (collision risk — e.g.
+    /// start=150, target=300 ⇒ blocked at 160, free at start/retracted).
+    /// The auto sequence is exempt: its parallel return deliberately moves
+    /// the Schieber while the Drücker is above start, a choreographed/proven
+    /// motion. Only armed once the Drücker is homed (position known).
+    /// Schieber HOMING is never gated (see [`Self::enforce_schieber_interlock`]).
     pub fn schieber_interlock_active(&self) -> bool {
+        if self.auto_sequence.is_some() {
+            return false;
+        }
         if !self.axis_homed[axes::DRUECKER] {
             return false;
         }
         let threshold =
-            self.druecker_start_threshold_mm() - SCHIEBER_INTERLOCK_TOLERANCE_MM;
-        self.current_logical_mm(axes::DRUECKER) < threshold
+            self.druecker_start_threshold_mm() + SCHIEBER_INTERLOCK_TOLERANCE_MM;
+        self.current_logical_mm(axes::DRUECKER) > threshold
     }
 
-    /// Active enforcement: if the Schieber is travelling while the
-    /// interlock is armed, stop it immediately. A running auto-sequence is
-    /// aborted (the Drücker dropping below start mid-sequence means
-    /// something is wrong). Schieber homing is exempt — it must always be
-    /// able to reach its own reference. Returns true if it intervened.
+    /// Active enforcement: if the Schieber is travelling (manually) while the
+    /// interlock is armed, stop it immediately. `schieber_interlock_active`
+    /// already returns false during an auto sequence, so this never fires
+    /// against the choreographed run. Schieber homing is exempt — it must
+    /// always be able to reach its own reference. Returns true if it intervened.
     pub fn enforce_schieber_interlock(&mut self) -> bool {
         if !self.schieber_interlock_active() {
             return false;
@@ -1447,17 +1454,11 @@ impl BbmAutomatikV2 {
             return false;
         }
         tracing::warn!(
-            "[BbmAutomatikV2] Schieber-Interlock: Drücker unter Start ({:.1} mm < {:.1} mm) - Schieber gestoppt",
+            "[BbmAutomatikV2] Schieber-Interlock: Drücker über Start/ausgefahren ({:.1} mm > {:.1} mm) - Schieber gestoppt",
             self.current_logical_mm(axes::DRUECKER),
             self.druecker_start_threshold_mm()
         );
         self.stop_axis(s);
-        if self.auto_sequence.is_some() {
-            tracing::error!(
-                "[BbmAutomatikV2] Auto-Sequenz abgebrochen: Schieber-Interlock ausgelöst"
-            );
-            self.stop_auto_sequence();
-        }
         true
     }
 
@@ -1690,13 +1691,11 @@ impl BbmAutomatikV2 {
         self.set_ruettelmotor(true);
         self.set_ampel(false, true, false);
 
-        // Move MT and Drücker to their start positions. The Schieber is
-        // intentionally NOT commanded here: the anti-collision interlock
-        // would block it while the Drücker is still below its start. The
-        // WaitParallelComplete step waits for MT + Drücker; the Schieber's
-        // first move happens in the opening wobble of cycle 1, by which
-        // point the Drücker has reached its start and the interlock clears.
+        // Move all axes to their start positions. The Schieber interlock is
+        // exempt during the auto sequence (its moves are choreographed), so
+        // all three can be commanded together as the original design intends.
         self.move_to_position_mm(axes::MT, mt_start, speed.mt_mm_s);
+        self.move_to_position_mm(axes::SCHIEBER, schieber_start, speed.schieber_mm_s);
         self.move_to_position_mm(axes::DRUECKER, druecker_start, speed.druecker_mm_s);
 
         tracing::info!(
