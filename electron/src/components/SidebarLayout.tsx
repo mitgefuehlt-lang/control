@@ -11,6 +11,7 @@ import { Fragment, useEffect } from "react";
 import React from "react";
 import { Icon, IconName } from "./Icon";
 import { useMainNamespace } from "@/client/mainNamespace";
+import { useConnectionStore } from "@/client/socketioStore";
 
 type SidebarItemContent = {
   link: string;
@@ -66,6 +67,7 @@ export function SidebarLayout() {
   const router = useRouter();
   const routerState = useRouterState();
   const { machines: machinesEvent } = useMainNamespace();
+  const mainConnected = useConnectionStore((s) => s.mainConnected);
   const [contentWidth, setContentWidth] = React.useState<number>(0);
 
   // Machine connection guard: redirect to setup if selected machine disconnects
@@ -160,6 +162,12 @@ export function SidebarLayout() {
           ))}
         </div>
       </div>
+      {!mainConnected && (
+        <div className="fixed top-0 right-0 left-48 z-[100] animate-pulse bg-red-600 px-4 py-2 text-center text-sm font-bold text-white">
+          Verbindung zum Server unterbrochen – versuche neu zu verbinden… (Anzeige
+          evtl. nicht aktuell)
+        </div>
+      )}
       <div className="ml-48" ref={outletRef}>
         <Outlet />
       </div>

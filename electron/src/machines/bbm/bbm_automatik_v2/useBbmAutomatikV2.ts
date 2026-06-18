@@ -32,7 +32,7 @@ export const AXIS = {
 
 // Axis names for display
 export const AXIS_NAMES = [
-  "Transporter",
+  "Transport",
   "Schieber",
   "Drücker",
 ] as const;

@@ -12,6 +12,14 @@ import { getServerBaseUrl } from "@/lib/serverUrl";
 import { mainNamespaceStore } from "./mainNamespace";
 
 /**
+ * Global connection status of the /main socket. Drives a UI banner so a lost
+ * connection is visible instead of silently freezing the last-known state.
+ */
+export const useConnectionStore = create<{ mainConnected: boolean }>(() => ({
+  mainConnected: false,
+}));
+
+/**
  * Simple buffer-based store updater to limit React re-renders to ~30 FPS
  * Writes events to a plain JS object and syncs to store every 33ms
  */
@@ -284,10 +292,18 @@ const useSocketioStore = create<SocketioStore>()((set, get) => ({
       throw new Error(`Namespace ${namespace_path} already initialized`);
     }
 
-    // create a new socket
+    // create a new socket. Reconnection is left ON (socket.io default) with
+    // explicit backoff so a dropped WLAN recovers automatically once the
+    // network returns — WITHOUT a page reload (which would fail while offline
+    // and freeze the tablet).
     const socket = io(get().baseUrl + namespace_path, {
       autoConnect: false,
       parser: MsgPackParser,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
 
     // create function to reset the store
@@ -308,13 +324,23 @@ const useSocketioStore = create<SocketioStore>()((set, get) => ({
     // add handlers
     socket.on("connect", () => {
       console.log(`Connected to ${namespace_path}`);
+      // Fresh store on every (re)connect so cached first/last events
+      // repopulate cleanly after a reconnect.
       resetStore(set);
+      if (namespace_path === "/main") {
+        useConnectionStore.setState({ mainConnected: true });
+      }
     });
     socket.on("disconnect", (reason) => {
-      socket.disconnect();
-      resetStore(set);
-      // Its hacky but i do not care, electron + react is annoying ...
-      window.location.reload();
+      console.warn(`Disconnected from ${namespace_path}: ${reason}`);
+      // Do NOT call socket.disconnect() (that would disable auto-reconnect)
+      // and do NOT reload the page (fails while offline → frozen tablet).
+      // socket.io reconnects automatically with backoff; the UI shows a
+      // "connection lost" banner meanwhile. Last-known state is kept so the
+      // sidebar/machine selection doesn't flip during a brief blip.
+      if (namespace_path === "/main") {
+        useConnectionStore.setState({ mainConnected: false });
+      }
     });
 
     socket.on("event", (event: unknown) => {
