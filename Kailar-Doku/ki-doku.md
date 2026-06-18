@@ -2706,3 +2706,85 @@ Siehe learnings1.md §12.6 — Jog ist seit d7bdf8cd ein endlicher TDC-Move, ver
 2. **TDC-Praezisions-Test:** Nach Deploy normale Position-Moves fahren (z.B. 43,5 mm) → Achse muss weiterhin exakt stoppen (beweist: Watchdog-aktiv stoert TDC nicht). Falls Moves NICHT mehr praezise: Befund dokumentieren, watchdog_timer_deactive zuruecksetzen, neu bewerten.
 3. **Tuer-Test:** Buerstenmotor AN (keine Achse faehrt) → Tuer oeffnen → Buerste muss ausgehen + rotes Banner.
 4. **Rampen-Test:** Beschleunigung im UI aendern (z.B. auf 100 mm/s²) → Moves muessen weiterhin sauber und praezise stoppen (falling-Rampe jetzt 10% steiler).
+
+---
+
+## Session 2026-06-18: PIN-Schutz, Anti-Kollisions-Interlocks, Auto auf Teach-Positionen, Homing-Gate, Verbindungs-Robustheit
+
+Großes BBM-Paket, ueber mehrere fast-deploys ausgerollt (Commits `4886750b`, `fa2e4aca`, `40cd4846`, `3dc1af0a`, `11ad0786`, `f9969f43`, `9335b8be`, `8560c74e`). Schwerpunkt: Bedien-Schutz + mechanischer Kollisionsschutz zwischen Schieber und Druecker + Robustheit der Tablet-Verbindung.
+
+### 1) PIN-Gate sessionweit (`ServicePinGate` + `useServicePinStore`)
+- Vorher: jede geschuetzte BBM-Seite hatte ein eigenes Gate mit lokalem `useState` → bei jedem Bereichswechsel neue PIN-Abfrage (unbrauchbar).
+- Jetzt: app-weiter Zustand-Store (`electron/src/components/ServicePinGate.tsx`). Einmal entsperrt gilt fuer ALLE geschuetzten Bereiche. **Auto-Sperre nach 10 Min Inaktivitaet** (Listener + Interval mit Cleanup).
+- `BbmAutomatikV2PinGate` ist jetzt nur noch ein Re-Export auf `ServicePinGate` → BBM-Seiten + Setup teilen denselben Unlock. PIN unveraendert `1357`.
+
+### 2) Setup-Bereich komplett PIN-gesperrt
+- `setupRoute`-Component in `routes.tsx` in `<ServicePinGate>` gewickelt. `SetupPage`s Topbar haelt den `<Outlet/>`, daher deckt ein Unlock alle Unterseiten ab (Machines, EtherCat, Update, Troubleshoot, Metrics).
+- **Nebeneffekt:** Da die App per Memory-Router auf `/_sidebar/setup/ethercat` startet, kommt jetzt beim Start zuerst die PIN-Abfrage. Bewusst akzeptiert.
+
+### 3) Kalibrierungs-Seite kompakt + achsenspezifische Slots
+- 2-Spalten-Layout (alle Achsen auf einen Blick), "Anfahren" als grosse blaue Haupttaste, "Speichern"/"Loeschen" als kleine Icon-Buttons.
+- Pro Achse nur relevante Teach-Slots: Transport Start/Ziel, Schieber Start/Ziel/Reinigung, Druecker Start/Ziel/Wartung. Custom2 nur ausgeblendet (Werte bleiben im Backend), feste Labels statt Umbenennen.
+
+### 4) Schieber ⟷ Druecker Anti-Kollisions-Interlocks (A + B) — sicherheitskritisch
+- **Interlock A:** Schieber-Bewegung gesperrt solange der Druecker ueber seine (geteachte) Start-Position ausgefahren ist (sonst schert der Schieber die Druecker-Spitzen ab). Schwelle = `druecker_start + 0.5 mm` Toleranz, Fallback `DRUECKER_START_FALLBACK=60`.
+- **Interlock B:** Druecker-Bewegung gesperrt solange der Schieber nicht auf Start steht (sonst crasht der Druecker in den Schieber). Schwelle = `schieber_start + 0.5 mm`, Fallback `SCHIEBER_START_FALLBACK=7`.
+- Beide HART, manuell UND Auto. Aktiver Stop im `act()`-Loop (`enforce_schieber_interlock` | `enforce_druecker_interlock`), bricht laufende Auto-Sequenz ab. Homing ist von beiden ausgenommen (sonst kein Referenzieren moeglich).
+- Mit A+B koennen ueber gefuehrte Bewegungen **nie beide gleichzeitig draussen** sein → kein erreichbarer Deadlock.
+- Neue State-Felder `schieber_interlock_active` / `druecker_interlock_active` (↔ Zod), Banner auf der Motoren-Seite (nur ausserhalb Auto angezeigt).
+- **Lektion:** Erst war A invertiert (sperrte bei Druecker UNTER Start) → Schieber fuhr bei Druecker=0 nicht. Richtung korrigiert. Dann wurde Auto faelschlich vom Interlock ausgenommen — der Parallel-Rueckzug haette die Spitzen abgeschert. Korrektur: Interlock gilt auch in Auto, dafuer Zyklus umgebaut (siehe 5).
+
+### 5) Auto/Test nutzen geteachte Positionen + strikte Abwechslung
+- Alte hartcodierte `auto_positions::*` (MT_RUN/SCHIEBER_START/… ) entfernt. Sequenz nutzt jetzt die geteachten Start/Ziel-Positionen (Snapshot in `AutoSequenceState` bei Start). Fehlt eine benoetigte Teach-Position → **Sequenz verweigert den Start** (`missing_auto_teach_positions`), Test-Seite zeigt welche fehlen.
+- **MT:** Start = Lauf-Basis (−10 mm/Zyklus bleibt, `MT_ADVANCE_PER_CYCLE`), Ziel = finale **Entnahme-Position** nach allen Sets (neue `AutoCycleStep::Entnahme`).
+- **Wobble:** 1.5 → 1.0 mm.
+- **Strikte Abwechslung (wegen A+B):** Schieber kompletter Hub (Wobble → Ziel → zurueck auf Start) waehrend der Druecker auf Start steht, DANN Druecker (→ Ziel → zurueck auf Start) waehrend der Schieber auf Start steht; MT-Vorschub parallel zur Druecker-Phase. Nie beide gleichzeitig ausgefahren.
+
+### 6) Globaler Homing-Gate
+- Solange nicht ALLE Achsen referenziert sind (`axis_homed` alle true), blockiert das Backend jede Achsbewegung (move/jog/goto/speed/raw-freq + Auto-Start). Homing selbst umgeht die Guards (setzt `axis_target_speeds` direkt). Schrittverlust entzieht `axis_homed` → Gate re-aktiviert.
+- Neues State-Feld `axis_homed: [bool;3]` (↔ Zod). UI: Motoren-Seite sperrt Bewegungs-Buttons (HOME bleibt) + Banner; Test/Auto verweigern Start + zeigen fehlende Achsen.
+- **Bedien-Hinweis:** Nach Power-Up bewegt sich nichts, bis alle 3 gehomt sind (HOME je Achse oder Test-Seite "Reset").
+
+### 7) Robuster Socket-Auto-Reconnect (Einfrieren behoben)
+- Bug: `socketioStore` rief im disconnect-Handler `socket.disconnect()` (deaktiviert socket.io-Auto-Reconnect) + `window.location.reload()` (friert ein, wenn WLAN gerade weg → Seite kann nicht laden, kein erneuter Versuch). → Tablet zeigte eingefrorenes Live-Bild.
+- Fix: socket.io-Auto-Reconnect mit Backoff (`reconnection`, `reconnectionDelayMax`, `timeout`), KEIN Reload, letzter Zustand bleibt erhalten. Neuer `useConnectionStore` + roter "Verbindung unterbrochen"-Banner in `SidebarLayout`.
+
+### 8) MT-Achse heisst in der UI jetzt "Transport" (`AXIS_NAMES[0]`).
+
+### Geaenderte Dateien (Kern)
+| Datei | Aenderung |
+|-------|-----------|
+| `machines/src/bbm_automatik_v2/mod.rs` | Interlock A+B Helfer/enforce, Homing-Gate, Teach-basierte Auto-Sequenz, strikte Abwechslung, Entnahme, Bewegungs-Guards, get_state-Felder |
+| `machines/src/bbm_automatik_v2/api.rs` | StateEvent + `axis_homed`, `schieber_interlock_active`, `druecker_interlock_active` |
+| `machines/src/bbm_automatik_v2/act.rs` | enforce-Interlocks im Loop |
+| `electron/src/components/ServicePinGate.tsx` | NEU: geteiltes PIN-Gate + Store |
+| `electron/src/components/SidebarLayout.tsx` | Verbindungs-Banner |
+| `electron/src/client/socketioStore.ts` | Auto-Reconnect statt disconnect+reload, `useConnectionStore` |
+| `electron/src/routes/routes.tsx` | Setup hinter ServicePinGate |
+| `electron/.../bbmAutomatikV2Namespace.ts` | Zod: axis_homed + beide Interlock-Flags |
+| `electron/.../useBbmAutomatikV2.ts` | Helfer (homed/interlocks/missing-teach), AXIS_NAMES[0]="Transport" |
+| `electron/.../BbmAutomatikV2KalibrierungPage.tsx` | Neues kompaktes Layout + Slots |
+| `electron/.../BbmAutomatikV2MotorsPage.tsx` | Banner (Homing/A/B), Button-Sperren |
+| `electron/.../BbmAutomatikV2TestPage.tsx` + `…AutoPage.tsx` | Start-Sperre + Hinweise (homed/teach) |
+| entfernt: `electron/.../bbmAutomatikV2PinStore.ts` | durch ServicePinGate ersetzt |
+
+### Validierung
+- Kein lokales cargo auf Windows → Rust-Build wird im fast-deploy-CI verifiziert; Konsistenz (StateEvent ↔ Zod, Match-Erschoepftheit, Borrow-Checker, entfernte Konstanten) manuell geprueft. `npx tsc --noEmit` nach jeder Aenderung ✓.
+
+### Deploy-Status
+- Alle Pakete auf origin/master + per fast-deploy ausgerollt. Stufe-5-Logpruefung je Deploy bestaetigt: "Group in OP state", "received machines[BbmAutomatikV2]", "Loaded calibration", keine panic/error/closed-channel.
+- **Letzter Deploy (Run 27765840634) meldete FAILURE** ("Services not healthy after reboot") — Ursache war NUR der bekannte EtherCAT-"Failed to put group in Safe-OP state: Timeout" beim ERSTEN Boot-Versuch → `exit(1)` → systemd-Restart → 2. Versuch sofort OP. Code war/ist korrekt (gleicher Build lief beim Neustart). **Lehre:** "failed" fast-deploy heisst nicht zwingend kaputter Code — per SSH `systemctl is-active` + journalctl auf neuester PID pruefen (ein `NRestarts=1` aus dem Timeout ist normal). Backlog: Health-Check sollte einen systemd-Restart tolerieren.
+
+### Fehlersuche-Episode "Tablet nicht erreichbar" (wichtige Lessons)
+Langer Verlauf, in dem die Tablet-Verbindung wiederholt die eigentliche Ursache war (nicht der Code):
+- **`?v=N` ist der Cache-Buster** (Nix-mtime=1970-Falle). Start-URL `http://192.168.178.106:3001/?v=N` — Nummer nach Deploy hochzaehlen. NICHT entfernen (es wurde faelschlich dazu geraten).
+- **WLAN-Haenger des Mini-PCs:** Nach mehreren Soft-Reboots war `wlo1` in einem Zustand, in dem ausgehend ok (Gateway-Ping, Tailscale-SSH), aber **eingehende** LAN-Verbindungen tot waren. Fix: **Power-Cycle** (Aus/An) des Mini-PCs — Soft-Reboot reichte nicht.
+- **Diagnose-Falle:** `curl 127.0.0.1:3001`/eigene IP vom Server beweist nur, dass er lauscht, NICHT die externe Erreichbarkeit ueber Funk. Bei "nicht erreichbar" zuerst `journalctl` auf Verbindungs-Ereignisse pruefen (kommt vom Tablet ueberhaupt was an?).
+- **Eingefrorenes Tablet** (toter Socket) sah aus wie laufende Motoren + haengendes Banner — war aber nur die nicht aktualisierte UI (siehe Fix 7). Homing lief in Wahrheit korrekt durch; nur der Druecker bekam sein Home-Kommando nie (Verbindung eingefroren).
+
+### Offene Hardware-Tests (an der Maschine, langsam!)
+1. **Interlock A:** Druecker ueber Start ausfahren → Schieber-Bewegung muss gesperrt sein (+ Banner). Druecker bei/unter Start → Schieber faehrt.
+2. **Interlock B:** Schieber von Start weg → Druecker-Bewegung muss gesperrt sein (+ Banner). Schieber auf Start → Druecker faehrt.
+3. **Homing-Gate:** nach Power-Up faehrt nichts; alle 3 referenzieren → Banner verschwindet, Bewegung frei. (Beim letzten Test wurde nur MT+Schieber gehomt — Druecker erneut testen.)
+4. **Auto-Lauf (langsam):** strikte Abwechslung beobachten — Schieber und Druecker duerfen NIE gleichzeitig ausgefahren sein. MT-Entnahme-Fahrt am Ende pruefen.
+5. **Verbindung:** Tablet `?v=`-Reload → bei WLAN-Aussetzer kein Einfrieren mehr, roter Banner + automatischer Reconnect.
