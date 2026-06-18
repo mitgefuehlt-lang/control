@@ -85,6 +85,9 @@ export const stateEventDataSchema = z.object({
   axis_alarm_active: z.tuple([z.boolean(), z.boolean(), z.boolean()]),
   axis_step_loss: z.tuple([z.boolean(), z.boolean(), z.boolean()]),
   door_interlock_active: z.boolean(),
+  // true when the Schieber is blocked because the Drücker is below its
+  // (teached) start position (anti-collision interlock).
+  schieber_interlock_active: z.boolean(),
   auto_running: z.boolean(),
   auto_current_set: z.number(),
   auto_current_block: z.number(),

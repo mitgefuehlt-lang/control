@@ -24,6 +24,13 @@ impl MachineAct for BbmAutomatikV2 {
             self.emit_state();
         }
 
+        // Schieber anti-collision interlock: stop the Schieber if it is
+        // travelling while the Drücker is retracted below its start.
+        let interlock_triggered = self.enforce_schieber_interlock();
+        if interlock_triggered {
+            self.emit_state();
+        }
+
         // Hardware monitor: watch hardware status, no timing needed
         let status_changed = self.update_hardware_monitor();
         if status_changed {

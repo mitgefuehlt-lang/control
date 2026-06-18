@@ -118,19 +118,30 @@ pub mod speed_presets {
     };
 }
 
-/// Position constants (mm) from Arduino v3.2
+/// Auto-sequence tuning constants. The per-axis target POSITIONS are no
+/// longer hardcoded here — they are taken from the user-teached
+/// calibration positions at sequence start (see [`AutoSequenceState`] and
+/// `start_auto_sequence`). Only the timing/structure constants and the
+/// fixed MT advance-per-cycle remain.
 pub mod auto_positions {
-    pub const MT_START: f32 = 5.0;
-    pub const MT_RUN: f32 = 34.5;
+    /// MT moves this far back per fill cycle (fixed, not teachable).
     pub const MT_ADVANCE_PER_CYCLE: f32 = 10.0;
-    pub const SCHIEBER_START: f32 = 7.0;
-    pub const SCHIEBER_TARGET: f32 = 51.0;
-    pub const SCHIEBER_WOBBLE: f32 = 1.5;
-    pub const DRUECKER_START: f32 = 60.0;
-    pub const DRUECKER_TARGET: f32 = 105.0;
+    /// Schieber wobble amplitude around its start position (mm).
+    pub const SCHIEBER_WOBBLE: f32 = 1.0;
     pub const CYCLES_PER_BLOCK: u32 = 19;
     pub const BLOCKS_PER_SET: u32 = 3;
+
+    /// Fallback Drücker start position (mm) used ONLY by the Schieber
+    /// anti-collision interlock when the Drücker start has not been
+    /// teached yet — so the safety rule is never silently disabled.
+    pub const DRUECKER_START_FALLBACK: f32 = 60.0;
 }
+
+/// Tolerance (mm) below the Drücker start threshold before the Schieber
+/// interlock engages. Keeps the interlock from flapping when the Drücker
+/// sits exactly at its teached start (within normal TDC precision) during
+/// an auto cycle.
+pub const SCHIEBER_INTERLOCK_TOLERANCE_MM: f32 = 0.5;
 
 /// Cycle step within one fill cycle
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -147,6 +158,9 @@ pub enum AutoCycleStep {
     ParallelReturn,
     /// Wait for all parallel moves to complete
     WaitParallelComplete,
+    /// Final step after all sets: MT drives to its teached Ziel position
+    /// for part removal (Entnahme); sequence finishes once MT arrives.
+    Entnahme,
 }
 
 /// Top-level auto-sequence state
@@ -160,6 +174,17 @@ pub struct AutoSequenceState {
     pub current_cycle: u32,
     pub current_step: AutoCycleStep,
     pub mt_current_run_pos: f32,
+
+    // Teached target positions (mm), snapshotted at sequence start so a
+    // running sequence is immune to mid-run calibration edits. Resolved
+    // from `teach_positions`; the sequence refuses to start if any is
+    // missing (see `start_auto_sequence`).
+    pub mt_start: f32,
+    pub mt_ziel: f32,
+    pub schieber_start: f32,
+    pub schieber_ziel: f32,
+    pub druecker_start: f32,
+    pub druecker_ziel: f32,
 }
 
 /// Homing phases
@@ -535,6 +560,7 @@ impl BbmAutomatikV2 {
             axis_alarm_active: self.axis_alarm_active,
             axis_step_loss: self.axis_step_loss,
             door_interlock_active: self.door_interlock_active,
+            schieber_interlock_active: self.schieber_interlock_active(),
             auto_running: self.auto_sequence.is_some(),
             auto_current_set: self.auto_sequence.as_ref().map(|s| s.current_set).unwrap_or(0),
             auto_current_block: self.auto_sequence.as_ref().map(|s| s.current_block).unwrap_or(0),
@@ -669,6 +695,16 @@ impl BbmAutomatikV2 {
     /// Positive = forward, Negative = backward
     /// For linear axes with ball screw
     pub fn set_axis_speed_mm_s(&mut self, index: usize, mm_per_s: f32) {
+        // Schieber anti-collision interlock: block a non-zero Schieber speed
+        // command while the Drücker is below its start. A zero command
+        // (stop) is always allowed.
+        if index == axes::SCHIEBER && mm_per_s != 0.0 && self.schieber_interlock_active() {
+            tracing::warn!(
+                "[BbmAutomatikV2] Schieber-Speed blockiert (Interlock): Drücker unter Start ({:.1} mm)",
+                self.current_logical_mm(axes::DRUECKER)
+            );
+            return;
+        }
         if index < self.axis_target_speeds.len() {
             let hz = mechanics::mm_per_s_to_hz(mm_per_s);
             self.axis_target_speeds[index] = hz;
@@ -745,6 +781,17 @@ impl BbmAutomatikV2 {
     /// physically correct direction.
     pub fn move_to_position_mm(&mut self, index: usize, position_mm: f32, speed_mm_s: f32) {
         if index >= self.axes.len() {
+            return;
+        }
+
+        // Schieber anti-collision interlock: refuse any Schieber move while
+        // the Drücker is retracted below its start position. Covers manual
+        // Fahre/Jog/Goto and the auto cycle (all route through here).
+        if index == axes::SCHIEBER && self.schieber_interlock_active() {
+            tracing::warn!(
+                "[BbmAutomatikV2] Schieber-Move blockiert (Interlock): Drücker unter Start ({:.1} mm)",
+                self.current_logical_mm(axes::DRUECKER)
+            );
             return;
         }
 
@@ -1306,6 +1353,67 @@ impl BbmAutomatikV2 {
         false
     }
 
+    // ============ Schieber ⟷ Drücker Anti-Collision Interlock ============
+
+    /// The Drücker position (mm) below which the Schieber must not travel.
+    /// Uses the teached Drücker start; falls back to
+    /// [`auto_positions::DRUECKER_START_FALLBACK`] when not yet teached so
+    /// the safety rule is never silently off.
+    pub fn druecker_start_threshold_mm(&self) -> f32 {
+        self.teach_positions[axes::DRUECKER]
+            .start_mm
+            .unwrap_or(auto_positions::DRUECKER_START_FALLBACK)
+    }
+
+    /// True when the Schieber is currently blocked from moving because the
+    /// Drücker is retracted below its start position (mechanical collision
+    /// risk). Only armed once the Drücker is homed — before that its
+    /// position is unknown and the rule can't be enforced. Schieber HOMING
+    /// is intentionally not gated by this (see [`Self::enforce_schieber_interlock`]).
+    pub fn schieber_interlock_active(&self) -> bool {
+        if !self.axis_homed[axes::DRUECKER] {
+            return false;
+        }
+        let threshold =
+            self.druecker_start_threshold_mm() - SCHIEBER_INTERLOCK_TOLERANCE_MM;
+        self.current_logical_mm(axes::DRUECKER) < threshold
+    }
+
+    /// Active enforcement: if the Schieber is travelling while the
+    /// interlock is armed, stop it immediately. A running auto-sequence is
+    /// aborted (the Drücker dropping below start mid-sequence means
+    /// something is wrong). Schieber homing is exempt — it must always be
+    /// able to reach its own reference. Returns true if it intervened.
+    pub fn enforce_schieber_interlock(&mut self) -> bool {
+        if !self.schieber_interlock_active() {
+            return false;
+        }
+        let s = axes::SCHIEBER;
+        // Never interfere with a Schieber homing run.
+        if self.axis_homing_phase[s] != HomingPhase::Idle {
+            return false;
+        }
+        let moving = self.axis_position_mode[s]
+            || self.axis_speeds[s] != 0
+            || self.axis_target_speeds[s] != 0;
+        if !moving {
+            return false;
+        }
+        tracing::warn!(
+            "[BbmAutomatikV2] Schieber-Interlock: Drücker unter Start ({:.1} mm < {:.1} mm) - Schieber gestoppt",
+            self.current_logical_mm(axes::DRUECKER),
+            self.druecker_start_threshold_mm()
+        );
+        self.stop_axis(s);
+        if self.auto_sequence.is_some() {
+            tracing::error!(
+                "[BbmAutomatikV2] Auto-Sequenz abgebrochen: Schieber-Interlock ausgelöst"
+            );
+            self.stop_auto_sequence();
+        }
+        true
+    }
+
     // ============ Auto-Sequence State Machine ============
 
     /// True if axis is mid-move (Travel Distance Control in flight).
@@ -1329,7 +1437,7 @@ impl BbmAutomatikV2 {
                     // Wobble out complete, now wobble back
                     self.move_to_position_mm(
                         axes::SCHIEBER,
-                        auto_positions::SCHIEBER_START - auto_positions::SCHIEBER_WOBBLE,
+                        seq.schieber_start - auto_positions::SCHIEBER_WOBBLE,
                         seq.speed.schieber_mm_s,
                     );
                     self.auto_sequence.as_mut().unwrap().current_step =
@@ -1342,7 +1450,7 @@ impl BbmAutomatikV2 {
                     // Wobble done, schieber to target
                     self.move_to_position_mm(
                         axes::SCHIEBER,
-                        auto_positions::SCHIEBER_TARGET,
+                        seq.schieber_ziel,
                         seq.speed.schieber_mm_s,
                     );
                     self.auto_sequence.as_mut().unwrap().current_step =
@@ -1355,7 +1463,7 @@ impl BbmAutomatikV2 {
                     // Schieber at target, now drücker pushes
                     self.move_to_position_mm(
                         axes::DRUECKER,
-                        auto_positions::DRUECKER_TARGET,
+                        seq.druecker_ziel,
                         seq.speed.druecker_mm_s,
                     );
                     self.auto_sequence.as_mut().unwrap().current_step =
@@ -1368,12 +1476,12 @@ impl BbmAutomatikV2 {
                     // Drücker done, parallel return
                     self.move_to_position_mm(
                         axes::DRUECKER,
-                        auto_positions::DRUECKER_START,
+                        seq.druecker_start,
                         seq.speed.druecker_mm_s,
                     );
                     self.move_to_position_mm(
                         axes::SCHIEBER,
-                        auto_positions::SCHIEBER_START,
+                        seq.schieber_start,
                         seq.speed.schieber_mm_s,
                     );
                     let new_mt_pos =
@@ -1392,6 +1500,19 @@ impl BbmAutomatikV2 {
                 let mt_done = !self.is_axis_moving(axes::MT);
                 if schieber_done && druecker_done && mt_done {
                     return self.advance_auto_sequence();
+                }
+            }
+            AutoCycleStep::Entnahme => {
+                // Final removal move: wait for the MT to reach its Ziel,
+                // then finish the sequence (Rüttler off, Ampel green).
+                if !self.is_axis_moving(axes::MT) {
+                    tracing::info!(
+                        "[BbmAutomatikV2] Auto sequence COMPLETE - MT an Entnahme-Position"
+                    );
+                    self.set_ruettelmotor(false);
+                    self.set_ampel(false, false, true); // Green = done
+                    self.auto_sequence = None;
+                    return true;
                 }
             }
         }
@@ -1414,16 +1535,22 @@ impl BbmAutomatikV2 {
                 seq.current_set += 1;
 
                 if seq.current_set >= seq.total_sets {
-                    // ALL DONE
-                    tracing::info!("[BbmAutomatikV2] Auto sequence COMPLETE");
-                    self.set_ruettelmotor(false);
-                    self.set_ampel(false, false, true); // Green = done
-                    self.auto_sequence = None;
+                    // ALL DONE: drive the MT to its teached Ziel for part
+                    // removal (Entnahme), then finish once it arrives.
+                    let mt_ziel = seq.mt_ziel;
+                    let mt_speed = seq.speed.mt_mm_s;
+                    tracing::info!(
+                        "[BbmAutomatikV2] Alle Sets fertig - MT faehrt zur Entnahme-Position {:.1} mm",
+                        mt_ziel
+                    );
+                    self.move_to_position_mm(axes::MT, mt_ziel, mt_speed);
+                    self.auto_sequence.as_mut().unwrap().current_step =
+                        AutoCycleStep::Entnahme;
                     return true;
                 }
             }
-            // New block: reset MT position
-            seq.mt_current_run_pos = auto_positions::MT_RUN;
+            // New block: reset MT to its teached run-start
+            seq.mt_current_run_pos = seq.mt_start;
         }
 
         self.start_auto_cycle();
@@ -1434,11 +1561,12 @@ impl BbmAutomatikV2 {
     fn start_auto_cycle(&mut self) {
         let seq = self.auto_sequence.as_ref().unwrap();
         let speed = seq.speed;
+        let schieber_start = seq.schieber_start;
 
         // Start wobble: move schieber +wobble from start
         self.move_to_position_mm(
             axes::SCHIEBER,
-            auto_positions::SCHIEBER_START + auto_positions::SCHIEBER_WOBBLE,
+            schieber_start + auto_positions::SCHIEBER_WOBBLE,
             speed.schieber_mm_s,
         );
 
@@ -1461,13 +1589,33 @@ impl BbmAutomatikV2 {
             return;
         }
 
+        // All target positions come from the teached calibration — the old
+        // hardcoded constants are gone. Refuse to start (rather than fall
+        // back to stale values) if any required position is missing, and
+        // log exactly which ones so the user knows what to teach.
+        let missing = self.missing_auto_teach_positions();
+        if !missing.is_empty() {
+            tracing::warn!(
+                "[BbmAutomatikV2] Cannot start: missing teach positions: {}",
+                missing.join(", ")
+            );
+            return;
+        }
+        // Safe to unwrap: missing list is empty.
+        let mt_start = self.teach_positions[axes::MT].start_mm.unwrap();
+        let mt_ziel = self.teach_positions[axes::MT].ziel_mm.unwrap();
+        let schieber_start = self.teach_positions[axes::SCHIEBER].start_mm.unwrap();
+        let schieber_ziel = self.teach_positions[axes::SCHIEBER].ziel_mm.unwrap();
+        let druecker_start = self.teach_positions[axes::DRUECKER].start_mm.unwrap();
+        let druecker_ziel = self.teach_positions[axes::DRUECKER].ziel_mm.unwrap();
+
         let speed = match speed_preset {
             "medium" => speed_presets::MEDIUM,
             "fast" => speed_presets::FAST,
             _ => speed_presets::SLOW,
         };
 
-        // Initialize sequence
+        // Initialize sequence with the teached positions snapshotted.
         self.auto_sequence = Some(AutoSequenceState {
             speed_preset_name: speed_preset.to_string(),
             speed,
@@ -1476,25 +1624,27 @@ impl BbmAutomatikV2 {
             current_block: 0,
             current_cycle: 0,
             current_step: AutoCycleStep::WaitParallelComplete,
-            mt_current_run_pos: auto_positions::MT_RUN,
+            mt_current_run_pos: mt_start,
+            mt_start,
+            mt_ziel,
+            schieber_start,
+            schieber_ziel,
+            druecker_start,
+            druecker_ziel,
         });
 
         // Start: Rüttler on, Ampel gelb (running)
         self.set_ruettelmotor(true);
         self.set_ampel(false, true, false);
 
-        // Move all axes to start positions
-        self.move_to_position_mm(axes::MT, auto_positions::MT_RUN, speed.mt_mm_s);
-        self.move_to_position_mm(
-            axes::SCHIEBER,
-            auto_positions::SCHIEBER_START,
-            speed.schieber_mm_s,
-        );
-        self.move_to_position_mm(
-            axes::DRUECKER,
-            auto_positions::DRUECKER_START,
-            speed.druecker_mm_s,
-        );
+        // Move MT and Drücker to their start positions. The Schieber is
+        // intentionally NOT commanded here: the anti-collision interlock
+        // would block it while the Drücker is still below its start. The
+        // WaitParallelComplete step waits for MT + Drücker; the Schieber's
+        // first move happens in the opening wobble of cycle 1, by which
+        // point the Drücker has reached its start and the interlock clears.
+        self.move_to_position_mm(axes::MT, mt_start, speed.mt_mm_s);
+        self.move_to_position_mm(axes::DRUECKER, druecker_start, speed.druecker_mm_s);
 
         tracing::info!(
             "[BbmAutomatikV2] Auto sequence started: preset={}, sets={}",
@@ -1502,6 +1652,34 @@ impl BbmAutomatikV2 {
             total_sets
         );
         self.emit_state();
+    }
+
+    /// Names of the teach positions required to run the auto/test sequence
+    /// that are not yet set. Empty = ready to run. Used both as a
+    /// start-guard here and surfaced to the UI so the operator knows what
+    /// to calibrate.
+    pub fn missing_auto_teach_positions(&self) -> Vec<&'static str> {
+        let mut missing = Vec::new();
+        let t = &self.teach_positions;
+        if t[axes::MT].start_mm.is_none() {
+            missing.push("Transporter Start");
+        }
+        if t[axes::MT].ziel_mm.is_none() {
+            missing.push("Transporter Ziel");
+        }
+        if t[axes::SCHIEBER].start_mm.is_none() {
+            missing.push("Schieber Start");
+        }
+        if t[axes::SCHIEBER].ziel_mm.is_none() {
+            missing.push("Schieber Ziel");
+        }
+        if t[axes::DRUECKER].start_mm.is_none() {
+            missing.push("Drücker Start");
+        }
+        if t[axes::DRUECKER].ziel_mm.is_none() {
+            missing.push("Drücker Ziel");
+        }
+        missing
     }
 
     /// Stop auto-sequence and all axes

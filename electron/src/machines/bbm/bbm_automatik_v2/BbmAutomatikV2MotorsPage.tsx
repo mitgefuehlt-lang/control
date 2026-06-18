@@ -461,6 +461,7 @@ export function BbmAutomatikV2MotorsPage() {
     resetAlarms,
     isAnyAlarmActive,
     isDoorInterlockActive,
+    isSchieberInterlockActive,
     setBuerstenmotor,
     state,
     isDisabled,
@@ -470,6 +471,7 @@ export function BbmAutomatikV2MotorsPage() {
 
   const hasAlarm = isAnyAlarmActive();
   const doorInterlock = isDoorInterlockActive();
+  const schieberInterlock = isSchieberInterlockActive();
 
   return (
     <Page>
@@ -490,6 +492,14 @@ export function BbmAutomatikV2MotorsPage() {
             .filter(Boolean)
             .join(", ")}{" "}
           - BITTE NEU REFERENZIEREN
+        </div>
+      )}
+
+      {/* Schieber interlock banner: Drücker retracted below its start
+          position blocks all Schieber travel (anti-collision). */}
+      {schieberInterlock && (
+        <div className="mb-4 rounded-lg bg-amber-500 px-4 py-3 text-center text-lg font-bold text-black">
+          SCHIEBER GESPERRT - Drücker unter Start-Position (Kollisionsschutz)
         </div>
       )}
 

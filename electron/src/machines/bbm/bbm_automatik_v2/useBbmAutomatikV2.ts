@@ -568,6 +568,31 @@ function useBbmAutomatik(
     return stateOptimistic.value?.data.door_interlock_active ?? false;
   };
 
+  // Schieber anti-collision interlock: true when the Schieber is blocked
+  // because the Drücker is retracted below its teached start position.
+  const isSchieberInterlockActive = (): boolean => {
+    return stateOptimistic.value?.data.schieber_interlock_active ?? false;
+  };
+
+  // Names of teach positions required for the auto/test sequence that are
+  // not yet set. Mirrors the backend `missing_auto_teach_positions` so the
+  // UI can disable Start and tell the operator what to calibrate. Empty =
+  // ready to run.
+  const getMissingAutoTeachPositions = (): string[] => {
+    const t = stateOptimistic.value?.data.teach_positions;
+    if (!t) return ["(noch keine Daten)"];
+    const missing: string[] = [];
+    const isSet = (v: number | null | undefined) =>
+      v !== null && v !== undefined;
+    if (!isSet(t[AXIS.MT]?.start_mm)) missing.push("Transporter Start");
+    if (!isSet(t[AXIS.MT]?.ziel_mm)) missing.push("Transporter Ziel");
+    if (!isSet(t[AXIS.SCHIEBER]?.start_mm)) missing.push("Schieber Start");
+    if (!isSet(t[AXIS.SCHIEBER]?.ziel_mm)) missing.push("Schieber Ziel");
+    if (!isSet(t[AXIS.DRUECKER]?.start_mm)) missing.push("Drücker Start");
+    if (!isSet(t[AXIS.DRUECKER]?.ziel_mm)) missing.push("Drücker Ziel");
+    return missing;
+  };
+
   // Auto-sequence helpers
   const isAutoRunning = (): boolean => {
     return stateOptimistic.value?.data.auto_running ?? false;
@@ -845,8 +870,12 @@ function useBbmAutomatik(
     // Door interlock
     isDoorInterlockActive,
 
+    // Schieber anti-collision interlock
+    isSchieberInterlockActive,
+
     // Auto-sequence
     isAutoRunning,
+    getMissingAutoTeachPositions,
     startAutoSequence,
     stopAutoSequence,
 

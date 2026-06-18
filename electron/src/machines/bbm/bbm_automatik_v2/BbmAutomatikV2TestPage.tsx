@@ -16,6 +16,7 @@ export function BbmAutomatikV2TestPage() {
     isAutoRunning,
     isDoorInterlockActive,
     isAnyAlarmActive,
+    getMissingAutoTeachPositions,
     startAutoSequence,
     stopAutoSequence,
     stopAllAxes,
@@ -28,7 +29,12 @@ export function BbmAutomatikV2TestPage() {
   const autoRunning = isAutoRunning();
   const doorInterlock = isDoorInterlockActive();
   const hasAlarm = isAnyAlarmActive();
-  const canStart = !autoRunning && !doorInterlock && !hasAlarm;
+  // The sequence drives the teached calibration positions; it cannot start
+  // until all required positions are set (mirrors the backend guard).
+  const missingTeach = getMissingAutoTeachPositions();
+  const teachComplete = missingTeach.length === 0;
+  const canStart =
+    !autoRunning && !doorInterlock && !hasAlarm && teachComplete;
 
   const handleSequence1x = () => {
     // 1x befüllen = 1 set (runs 1 block of 19 cycles)
@@ -60,6 +66,20 @@ export function BbmAutomatikV2TestPage() {
       {doorInterlock && (
         <div className="mb-4 animate-pulse rounded-lg bg-red-600 px-4 py-3 text-center text-lg font-bold text-white">
           TÜR OFFEN - NOTFALL-STOPP AKTIV
+        </div>
+      )}
+
+      {/* Teach-in incomplete banner: the sequence uses the teached
+          positions, so it can't run until all are calibrated. */}
+      {!teachComplete && (
+        <div className="mb-4 rounded-lg bg-amber-500 px-4 py-3 text-black">
+          <div className="font-bold">
+            Start gesperrt - Kalibrierung unvollständig
+          </div>
+          <div className="text-sm">
+            Folgende Positionen müssen in der Kalibrierung geteacht werden:{" "}
+            {missingTeach.join(", ")}
+          </div>
         </div>
       )}
 
