@@ -82,6 +82,7 @@ import { BbmAutomatikV2StatusPage } from "@/machines/bbm/bbm_automatik_v2/BbmAut
 import { BbmAutomatikV2ActuatorsPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2ActuatorsPage";
 import { BbmAutomatikV2KalibrierungPage } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2KalibrierungPage";
 import { BbmAutomatikV2PinGate } from "@/machines/bbm/bbm_automatik_v2/BbmAutomatikV2PinGate";
+import { ServicePinGate } from "@/components/ServicePinGate";
 
 // make a route tree like this
 // _mainNavigation/machines/winder2/$serial/control
@@ -446,7 +447,15 @@ export const bbmAutomatikV2KalibrierungRoute = createRoute({
 export const setupRoute = createRoute({
   getParentRoute: () => sidebarRoute,
   path: "setup",
-  component: () => <SetupPage />,
+  // Gate the entire Setup section behind the shared service PIN. SetupPage's
+  // Topbar holds the <Outlet/>, so wrapping it here protects every setup
+  // subpage (Machines, EtherCat, Update, Troubleshoot, Metrics) with a
+  // single unlock shared with the BBM service pages.
+  component: () => (
+    <ServicePinGate>
+      <SetupPage />
+    </ServicePinGate>
+  ),
 });
 
 export const troubleshootRoute = createRoute({
