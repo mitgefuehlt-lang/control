@@ -30,9 +30,12 @@ pub struct StateEvent {
     /// integrity lost, axis must be re-homed (clears the flag).
     pub axis_step_loss: [bool; 3],
     pub door_interlock_active: bool,
-    /// true when the Schieber is currently blocked from moving because the
-    /// Drücker is retracted below its (teached) start position.
+    /// true when the Schieber is currently blocked (Drücker extended above its
+    /// start, interlock A).
     pub schieber_interlock_active: bool,
+    /// true when the Drücker is currently blocked (Schieber away from its
+    /// start, interlock B).
+    pub druecker_interlock_active: bool,
     pub auto_running: bool,
     pub auto_current_set: u32,
     pub auto_current_block: u32,

@@ -588,6 +588,11 @@ function useBbmAutomatik(
     return stateOptimistic.value?.data.schieber_interlock_active ?? false;
   };
 
+  // Interlock B: Drücker blocked because the Schieber is away from start.
+  const isDruckerInterlockActive = (): boolean => {
+    return stateOptimistic.value?.data.druecker_interlock_active ?? false;
+  };
+
   // Names of teach positions required for the auto/test sequence that are
   // not yet set. Mirrors the backend `missing_auto_teach_positions` so the
   // UI can disable Start and tell the operator what to calibrate. Empty =
@@ -884,8 +889,9 @@ function useBbmAutomatik(
     // Door interlock
     isDoorInterlockActive,
 
-    // Schieber anti-collision interlock
+    // Schieber/Drücker anti-collision interlocks
     isSchieberInterlockActive,
+    isDruckerInterlockActive,
 
     // Auto-sequence
     isAutoRunning,

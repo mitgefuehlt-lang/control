@@ -466,6 +466,7 @@ export function BbmAutomatikV2MotorsPage() {
     isAnyAlarmActive,
     isDoorInterlockActive,
     isSchieberInterlockActive,
+    isDruckerInterlockActive,
     isAutoRunning,
     areAllAxesHomed,
     getUnhomedAxisNames,
@@ -478,10 +479,10 @@ export function BbmAutomatikV2MotorsPage() {
 
   const hasAlarm = isAnyAlarmActive();
   const doorInterlock = isDoorInterlockActive();
-  // Show the manual interlock banner only outside the auto sequence: during
-  // auto the Drücker is extended by design and the Schieber is idle, so the
-  // (true) interlock state is not an operator-facing problem there.
+  // Show the manual interlock banners only outside the auto sequence (in auto
+  // one axis is intentionally extended while the other waits).
   const schieberInterlock = isSchieberInterlockActive() && !isAutoRunning();
+  const druckerInterlock = isDruckerInterlockActive() && !isAutoRunning();
   const allHomed = areAllAxesHomed();
   const unhomedAxes = getUnhomedAxisNames();
 
@@ -520,6 +521,15 @@ export function BbmAutomatikV2MotorsPage() {
       {schieberInterlock && (
         <div className="mb-4 rounded-lg bg-amber-500 px-4 py-3 text-center text-lg font-bold text-black">
           SCHIEBER GESPERRT - Drücker ausgefahren (über Start-Position) -
+          Kollisionsschutz
+        </div>
+      )}
+
+      {/* Drücker interlock banner (B): Schieber away from start blocks the
+          Drücker (collision). */}
+      {druckerInterlock && (
+        <div className="mb-4 rounded-lg bg-amber-500 px-4 py-3 text-center text-lg font-bold text-black">
+          DRÜCKER GESPERRT - Schieber nicht auf Start-Position -
           Kollisionsschutz
         </div>
       )}
