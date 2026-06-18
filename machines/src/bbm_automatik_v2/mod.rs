@@ -140,6 +140,11 @@ pub mod auto_positions {
     /// [`DRUECKER_START_FALLBACK`] — used by the Drücker interlock when the
     /// Schieber start has not been teached yet.
     pub const SCHIEBER_START_FALLBACK: f32 = 7.0;
+
+    /// Fallback Schieber Ziel position (mm) — used by the Drücker interlock
+    /// (the Schieber is a safe position for the Drücker both at start AND at
+    /// ziel; only mid-travel is unsafe) when ziel is not yet teached.
+    pub const SCHIEBER_ZIEL_FALLBACK: f32 = 51.0;
 }
 
 /// Tolerance (mm) above the Drücker start before the Schieber interlock
@@ -850,11 +855,11 @@ impl BbmAutomatikV2 {
         }
 
         // Drücker anti-collision interlock (B): refuse any Drücker move while
-        // the Schieber is away from its start (the Drücker would crash into
-        // it). Applies to manual AND auto.
+        // the Schieber is mid-travel (neither at start nor at ziel — it would
+        // crash into the Schieber). Applies to manual AND auto.
         if index == axes::DRUECKER && self.druecker_interlock_active() {
             tracing::warn!(
-                "[BbmAutomatikV2] Drücker-Move blockiert (Interlock B): Schieber nicht auf Start ({:.1} mm)",
+                "[BbmAutomatikV2] Drücker-Move blockiert (Interlock B): Schieber mittendrin, nicht auf Start/Ziel ({:.1} mm)",
                 self.current_logical_mm(axes::SCHIEBER)
             );
             return;
@@ -1497,9 +1502,7 @@ impl BbmAutomatikV2 {
         true
     }
 
-    /// The Schieber start position (mm). The Drücker must not travel while the
-    /// Schieber is away from its start (extended), or the Drücker would crash
-    /// into it. Uses the teached Schieber start; falls back to
+    /// The Schieber start position (mm). Falls back to
     /// [`auto_positions::SCHIEBER_START_FALLBACK`] when not yet teached.
     pub fn schieber_start_threshold_mm(&self) -> f32 {
         self.teach_positions[axes::SCHIEBER]
@@ -1507,20 +1510,31 @@ impl BbmAutomatikV2 {
             .unwrap_or(auto_positions::SCHIEBER_START_FALLBACK)
     }
 
-    /// Interlock B (mirror of [`Self::schieber_interlock_active`]): true when
-    /// Drücker travel must be blocked because the Schieber is away from its
-    /// start position (the Drücker would crash into the extended Schieber —
-    /// the Drücker may only move while the Schieber is at start). HARD rule,
-    /// manual AND auto. Only armed once the Schieber is homed. Drücker HOMING
-    /// is never gated. Together with interlock A the two axes can never both
-    /// be out via guarded moves, so there is no reachable deadlock.
+    /// The Schieber Ziel position (mm). Falls back to
+    /// [`auto_positions::SCHIEBER_ZIEL_FALLBACK`] when not yet teached.
+    pub fn schieber_ziel_threshold_mm(&self) -> f32 {
+        self.teach_positions[axes::SCHIEBER]
+            .ziel_mm
+            .unwrap_or(auto_positions::SCHIEBER_ZIEL_FALLBACK)
+    }
+
+    /// Interlock B: true when Drücker travel must be blocked. The Schieber has
+    /// TWO safe positions for the Drücker — at START and at ZIEL (both ends).
+    /// The Drücker may only move while the Schieber sits at one of those ends;
+    /// while the Schieber is MID-TRAVEL (between them) the Drücker would crash
+    /// into it. HARD rule, manual AND auto. Only armed once the Schieber is
+    /// homed. Drücker HOMING is never gated.
     pub fn druecker_interlock_active(&self) -> bool {
         if !self.axis_homed[axes::SCHIEBER] {
             return false;
         }
-        let threshold =
-            self.schieber_start_threshold_mm() + SCHIEBER_INTERLOCK_TOLERANCE_MM;
-        self.current_logical_mm(axes::SCHIEBER) > threshold
+        let s = self.current_logical_mm(axes::SCHIEBER);
+        let tol = SCHIEBER_INTERLOCK_TOLERANCE_MM;
+        // at/below start (retracted) or at/beyond ziel (fully pushed) = safe
+        let near_start = s <= self.schieber_start_threshold_mm() + tol;
+        let near_ziel = s >= self.schieber_ziel_threshold_mm() - tol;
+        // blocked only while the Schieber is neither end (mid-travel)
+        !(near_start || near_ziel)
     }
 
     /// Active enforcement for interlock B: stop the Drücker if it travels
@@ -1541,9 +1555,8 @@ impl BbmAutomatikV2 {
             return false;
         }
         tracing::warn!(
-            "[BbmAutomatikV2] Drücker-Interlock: Schieber nicht auf Start ({:.1} mm > {:.1} mm) - Drücker gestoppt",
-            self.current_logical_mm(axes::SCHIEBER),
-            self.schieber_start_threshold_mm()
+            "[BbmAutomatikV2] Drücker-Interlock: Schieber mittendrin, nicht auf Start/Ziel ({:.1} mm) - Drücker gestoppt",
+            self.current_logical_mm(axes::SCHIEBER)
         );
         self.stop_axis(d);
         if self.auto_sequence.is_some() {
@@ -1601,10 +1614,43 @@ impl BbmAutomatikV2 {
             }
             AutoCycleStep::SchieberToTarget => {
                 if !self.is_axis_moving(axes::SCHIEBER) {
-                    // Schieber pushed material to target. STRICT ALTERNATION:
-                    // retract the Schieber fully to start BEFORE the Drücker
-                    // moves — interlock B requires the Schieber at start while
-                    // the Drücker travels (else the Drücker crashes into it).
+                    // Schieber reached Ziel (a SAFE Schieber position for the
+                    // Drücker per interlock B). Now the Drücker pushes — the
+                    // Schieber STAYS at Ziel (it does not have to retract first).
+                    self.move_to_position_mm(
+                        axes::DRUECKER,
+                        seq.druecker_ziel,
+                        seq.speed.druecker_mm_s,
+                    );
+                    self.auto_sequence.as_mut().unwrap().current_step =
+                        AutoCycleStep::DrueckerToTarget;
+                    return true;
+                }
+            }
+            AutoCycleStep::DrueckerToTarget => {
+                if !self.is_axis_moving(axes::DRUECKER) {
+                    // Drücker pushed → retract it to start (Schieber still at
+                    // Ziel, which B treats as a safe end position). MT advances
+                    // in parallel (gated by neither interlock).
+                    self.move_to_position_mm(
+                        axes::DRUECKER,
+                        seq.druecker_start,
+                        seq.speed.druecker_mm_s,
+                    );
+                    let new_mt_pos =
+                        seq.mt_current_run_pos - auto_positions::MT_ADVANCE_PER_CYCLE;
+                    self.move_to_position_mm(axes::MT, new_mt_pos, seq.speed.mt_mm_s);
+                    let s = self.auto_sequence.as_mut().unwrap();
+                    s.mt_current_run_pos = new_mt_pos;
+                    s.current_step = AutoCycleStep::DrueckerReturn;
+                    return true;
+                }
+            }
+            AutoCycleStep::DrueckerReturn => {
+                // Drücker is back at start → now retract the Schieber from Ziel
+                // to start (interlock A allows it: the Drücker is at start).
+                // MT may still be moving in parallel.
+                if !self.is_axis_moving(axes::DRUECKER) {
                     self.move_to_position_mm(
                         axes::SCHIEBER,
                         seq.schieber_start,
@@ -1616,43 +1662,11 @@ impl BbmAutomatikV2 {
                 }
             }
             AutoCycleStep::SchieberReturn => {
-                // Schieber is back at start → now the Drücker may push. Advance
-                // the MT in parallel (MT is gated by neither interlock).
-                if !self.is_axis_moving(axes::SCHIEBER) {
-                    self.move_to_position_mm(
-                        axes::DRUECKER,
-                        seq.druecker_ziel,
-                        seq.speed.druecker_mm_s,
-                    );
-                    let new_mt_pos =
-                        seq.mt_current_run_pos - auto_positions::MT_ADVANCE_PER_CYCLE;
-                    self.move_to_position_mm(axes::MT, new_mt_pos, seq.speed.mt_mm_s);
-                    let s = self.auto_sequence.as_mut().unwrap();
-                    s.mt_current_run_pos = new_mt_pos;
-                    s.current_step = AutoCycleStep::DrueckerToTarget;
-                    return true;
-                }
-            }
-            AutoCycleStep::DrueckerToTarget => {
-                if !self.is_axis_moving(axes::DRUECKER) {
-                    // Drücker pushed → retract it to start. (Schieber stays at
-                    // start throughout the Drücker phase.)
-                    self.move_to_position_mm(
-                        axes::DRUECKER,
-                        seq.druecker_start,
-                        seq.speed.druecker_mm_s,
-                    );
-                    self.auto_sequence.as_mut().unwrap().current_step =
-                        AutoCycleStep::DrueckerReturn;
-                    return true;
-                }
-            }
-            AutoCycleStep::DrueckerReturn => {
-                // Cycle ends once the Drücker is back at start and the parallel
+                // Cycle ends once the Schieber is back at start and the parallel
                 // MT advance is done.
-                let druecker_done = !self.is_axis_moving(axes::DRUECKER);
+                let schieber_done = !self.is_axis_moving(axes::SCHIEBER);
                 let mt_done = !self.is_axis_moving(axes::MT);
-                if druecker_done && mt_done {
+                if schieber_done && mt_done {
                     return self.advance_auto_sequence();
                 }
             }

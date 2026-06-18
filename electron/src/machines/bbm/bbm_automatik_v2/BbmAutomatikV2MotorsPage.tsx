@@ -525,11 +525,11 @@ export function BbmAutomatikV2MotorsPage() {
         </div>
       )}
 
-      {/* Drücker interlock banner (B): Schieber away from start blocks the
-          Drücker (collision). */}
+      {/* Drücker interlock banner (B): Schieber mid-travel (neither Start nor
+          Ziel) blocks the Drücker (collision). */}
       {druckerInterlock && (
         <div className="mb-4 rounded-lg bg-amber-500 px-4 py-3 text-center text-lg font-bold text-black">
-          DRÜCKER GESPERRT - Schieber nicht auf Start-Position -
+          DRÜCKER GESPERRT - Schieber nicht auf Start oder Ziel (mittendrin) -
           Kollisionsschutz
         </div>
       )}

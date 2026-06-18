@@ -33,8 +33,8 @@ pub struct StateEvent {
     /// true when the Schieber is currently blocked (Drücker extended above its
     /// start, interlock A).
     pub schieber_interlock_active: bool,
-    /// true when the Drücker is currently blocked (Schieber away from its
-    /// start, interlock B).
+    /// true when the Drücker is currently blocked (Schieber mid-travel —
+    /// neither at start nor at ziel, interlock B).
     pub druecker_interlock_active: bool,
     pub auto_running: bool,
     pub auto_current_set: u32,
